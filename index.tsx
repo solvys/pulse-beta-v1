@@ -118,6 +118,11 @@ type AppSettings = {
     currentPNL: number;
     tradingModelsExpanded: boolean;
     accountTrackerExpanded: boolean;
+    dailyProfitTarget: number;
+    dailyLossLimit: number;
+    selectedAccount: string;
+    maxTradesPerInterval: number;
+    tradeIntervalMinutes: number;
 };
 
 type OnboardingData = {
@@ -334,7 +339,12 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
             algoActive: false,
             currentPNL: 0,
             tradingModelsExpanded: false,
-            accountTrackerExpanded: false
+            accountTrackerExpanded: false,
+            dailyProfitTarget: 1000,
+            dailyLossLimit: 2000,
+            selectedAccount: '',
+            maxTradesPerInterval: 5,
+            tradeIntervalMinutes: 15
         };
         const loaded = saved ? JSON.parse(saved) : {};
         return {
@@ -1564,24 +1574,62 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
                                         />
                                     </div>
                                     {settings.topstepAccountConnected && (
-                                        <div className="space-y-2">
+                                        <div className="space-y-3">
+                                            {/* Account Selector */}
                                             <div className="flex flex-col gap-1">
-                                                <label className="text-[9px] text-[#FFC038]/50 uppercase">API Key</label>
-                                                <input
-                                                    type="password"
-                                                    value={settings.topstepXApiKey}
-                                                    onChange={(e) => updateSettings({ topstepXApiKey: e.target.value })}
-                                                    placeholder="Enter TopStepX API Key"
-                                                    className="w-full bg-black border border-[#FFC038]/20 rounded px-2 py-1 text-xs text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
-                                                />
-                                            </div>
-                                            <div className="p-2 bg-[#FFC038]/5 rounded border border-[#FFC038]/10">
-                                                <div className="flex justify-between text-[10px] mb-1">
-                                                    <span className="text-[#FFC038]/60">Daily Loss Limit</span>
-                                                    <span className="text-[#FFC038] font-mono">$2,000.00</span>
+                                                <label className="text-[9px] text-[#FFC038]/50 uppercase">Select Account</label>
+                                                <div className="relative">
+                                                    <select
+                                                        value={settings.selectedAccount}
+                                                        onChange={(e) => updateSettings({ selectedAccount: e.target.value })}
+                                                        className="w-full bg-black border border-[#FFC038]/20 rounded px-2 py-1.5 text-xs text-[#FFC038] focus:border-[#FFC038] outline-none font-mono appearance-none"
+                                                    >
+                                                        <option value="">-- Select Account --</option>
+                                                        <option value="TS-123456">TS-123456 ($50k Combine)</option>
+                                                        <option value="TS-789012">TS-789012 ($150k Express)</option>
+                                                        <option value="TS-345678">TS-345678 (Funded)</option>
+                                                    </select>
+                                                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[#FFC038]/50 pointer-events-none" />
                                                 </div>
-                                                <div className="w-full h-1 bg-[#FFC038]/10 rounded-full overflow-hidden">
-                                                    <div className="h-full bg-[#00FF85] w-[15%]"></div>
+                                            </div>
+
+                                            {/* Bi-directional PNL Bar */}
+                                            <div className="p-2 bg-[#FFC038]/5 rounded border border-[#FFC038]/10">
+                                                <div className="flex justify-between text-[10px] mb-1.5 font-mono">
+                                                    <span className="text-red-500">-${settings.dailyLossLimit}</span>
+                                                    <span className="text-[#FFC038]/50">0</span>
+                                                    <span className="text-[#00FF85]">+${settings.dailyProfitTarget}</span>
+                                                </div>
+
+                                                <div className="relative w-full h-2 bg-[#1a1500] rounded-full overflow-hidden border border-[#FFC038]/10">
+                                                    {/* Center Marker */}
+                                                    <div className="absolute left-1/2 top-0 bottom-0 w-[1px] bg-[#FFC038]/30 z-10"></div>
+
+                                                    {/* Profit Bar (Right) */}
+                                                    {settings.currentPNL > 0 && (
+                                                        <div
+                                                            className="absolute left-1/2 top-0 bottom-0 bg-[#00FF85] shadow-[0_0_10px_rgba(0,255,133,0.5)] transition-all duration-500"
+                                                            style={{ width: `${Math.min((settings.currentPNL / settings.dailyProfitTarget) * 50, 50)}%` }}
+                                                        ></div>
+                                                    )}
+
+                                                    {/* Loss Bar (Left) */}
+                                                    {settings.currentPNL < 0 && (
+                                                        <div
+                                                            className="absolute right-1/2 top-0 bottom-0 bg-red-500 shadow-[0_0_10px_rgba(255,0,0,0.5)] transition-all duration-500"
+                                                            style={{ width: `${Math.min((Math.abs(settings.currentPNL) / settings.dailyLossLimit) * 50, 50)}%` }}
+                                                        ></div>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex justify-between items-center mt-1.5">
+                                                    <span className="text-[9px] text-[#FFC038]/60 uppercase">Session P&L</span>
+                                                    <span className={cn(
+                                                        "text-xs font-bold font-mono",
+                                                        settings.currentPNL >= 0 ? "text-[#00FF85]" : "text-red-500"
+                                                    )}>
+                                                        {settings.currentPNL >= 0 ? '+' : '-'}${Math.abs(settings.currentPNL).toFixed(2)}
+                                                    </span>
                                                 </div>
                                             </div>
                                         </div>
@@ -1755,6 +1803,53 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
                                 checked={!settings.showUpgradeCTAText}
                                 onChange={() => updateSettings({ showUpgradeCTAText: !settings.showUpgradeCTAText })}
                             />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 mt-4">
+                            <div className="flex flex-col gap-2">
+                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Daily Profit Target ($)</label>
+                                <input
+                                    type="number"
+                                    value={settings.dailyProfitTarget}
+                                    onChange={(e) => updateSettings({ dailyProfitTarget: Number(e.target.value) })}
+                                    className="bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Daily Loss Limit ($)</label>
+                                <input
+                                    type="number"
+                                    value={settings.dailyLossLimit}
+                                    onChange={(e) => updateSettings({ dailyLossLimit: Number(e.target.value) })}
+                                    className="bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Max Trades / Interval</label>
+                                <input
+                                    type="number"
+                                    value={settings.maxTradesPerInterval}
+                                    onChange={(e) => updateSettings({ maxTradesPerInterval: Number(e.target.value) })}
+                                    className="bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Interval Duration</label>
+                                <div className="relative">
+                                    <select
+                                        value={settings.tradeIntervalMinutes}
+                                        onChange={(e) => updateSettings({ tradeIntervalMinutes: Number(e.target.value) })}
+                                        className="w-full bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono appearance-none"
+                                    >
+                                        <option value={5}>5 Minutes</option>
+                                        <option value={10}>10 Minutes</option>
+                                        <option value={15}>15 Minutes</option>
+                                        <option value={30}>30 Minutes</option>
+                                        <option value={60}>60 Minutes</option>
+                                    </select>
+                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#FFC038]/50 pointer-events-none" />
+                                </div>
+                            </div>
                         </div>
                     </section>
 
