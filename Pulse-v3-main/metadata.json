@@ -1,0 +1,7 @@
+{
+  "description": "Property of Priced In Research.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "name": "Pulse"
+}
