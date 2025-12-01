@@ -9,7 +9,7 @@ import {
     Siren, Paperclip, Camera, Video, FileText, Phone, MoreHorizontal, Send, Mic as MicIcon,
     Repeat, Image as ImageIcon, PanelLeftClose, PanelLeftOpen, Menu, LayoutDashboard, Keyboard, ChevronRight, ChevronLeft,
     Notebook, Plus, MessageSquare, Loader, GripHorizontal, HelpCircle, MousePointer2, AudioWaveform, RefreshCw, Bell, BellOff, UserPlus, UserMinus,
-    Link as LinkIcon, Square, Trash2, Play, Calendar, Loader2, Save
+    Link as LinkIcon, Square, Trash2, Play, Calendar, Loader2, Save, Cpu
 } from 'lucide-react';
 import { GoogleGenAI, Modality, LiveServerMessage, Chat, GenerateContentResponse } from "@google/genai";
 import { triggerEmotionalAlert, EmotionalState, playTone, playTiltBass, playTransitionWarning } from './emotionalAlerts';
@@ -264,7 +264,7 @@ const ThreadProvider = ({ children }: { children: React.ReactNode }) => {
         const id = Date.now().toString();
         const newThread: Thread = {
             id,
-            title: initialMessage && initialRole === 'user' ? (initialMessage.substring(0, 30) + (initialMessage.length > 30 ? '...' : '')) : `Session ${new Date().toLocaleTimeString()}`,
+            title: initialMessage && initialRole === 'user' ? (initialMessage.substring(0, 30) + (initialMessage.length > 30 ? '...' : '')) : `Session ${new Date().toLocaleTimeString()} `,
             timestamp: Date.now(),
             messages: initialMessage ? [{ role: initialRole, text: initialMessage, timestamp: Date.now() }] : [],
             algo: false,
@@ -868,11 +868,11 @@ const EmotionalResonanceMonitor = ({
         if (curseCount >= 3) {
             // Batch penalty for multiple curses (3 or more)
             penalty = 5.0;
-            applyPenalty(penalty, `Multiple Curses (${curseCount} detected)`);
+            applyPenalty(penalty, `Multiple Curses(${curseCount} detected)`);
         } else if (curseCount > 0) {
             // Individual penalty per curse word
             penalty = curseCount * 0.7;
-            applyPenalty(penalty, `Curse Word(s) (${curseCount})`);
+            applyPenalty(penalty, `Curse Word(s)(${curseCount})`);
         } else if (hasAggressive) {
             // Aggressive language without cursing
             penalty = 1.3;
@@ -980,15 +980,16 @@ const ThinkingIndicator = () => {
     return (
         <div className="flex items-center gap-4 py-3 px-2">
             <style>{`
-                @keyframes wave {
-                    0%, 100% { height: 40%; opacity: 0.6; }
-                    50% { height: 100%; opacity: 1; }
+@keyframes wave {
+    0 %, 100 % { height: 40 %; opacity: 0.6; }
+    50 % { height: 100 %; opacity: 1; }
+}
+@keyframes shimmer - overlay {
+    0 % { transform: translateX(-150 %) skewX(- 20deg);
+}
+100 % { transform: translateX(150 %) skewX(- 20deg); }
                 }
-                @keyframes shimmer-overlay {
-                    0% { transform: translateX(-150%) skewX(-20deg); }
-                    100% { transform: translateX(150%) skewX(-20deg); }
-                }
-            `}</style>
+`}</style>
 
             {/* Animation Container */}
             <div className="relative h-5 flex items-center gap-[3px] overflow-hidden">
@@ -998,8 +999,8 @@ const ThinkingIndicator = () => {
                         className="w-1 bg-[#FBC717] rounded-full"
                         style={{
                             height: '100%',
-                            animation: `wave 1s ease-in-out infinite`,
-                            animationDelay: `${i * 0.15}s`
+                            animation: `wave 1s ease -in -out infinite`,
+                            animationDelay: `${i * 0.15} s`
                         }}
                     />
                 ))}
@@ -1152,17 +1153,17 @@ const ThreadHistory = () => {
 DATE: ${today}
 
 PERFORMANCE:
-• Gross P&L: +$${(Math.random() * 1000 + 200).toFixed(2)}
+• Gross P & L: +$${(Math.random() * 1000 + 200).toFixed(2)}
 • Win Rate: ${Math.floor(Math.random() * 30 + 50)}%
 • Trades: ${Math.floor(Math.random() * 8 + 3)}
 
 PSYCHOLOGY:
 • Tilt Events: ${Math.floor(Math.random() * 3)}
 • Average ER Score: ${(Math.random() * 4 + 5).toFixed(1)}
-• Flow State Duration: ${Math.floor(Math.random() * 45 + 15)}m
+• Flow State Duration: ${Math.floor(Math.random() * 45 + 15)} m
 
 NOTES:
-Session marked by strong adherence to the plan during the morning drive. Some slippage in discipline observed near the close. Recommendation: Review tomorrow's key levels tonight.`;
+Session marked by strong adherence to the plan during the morning drive.Some slippage in discipline observed near the close.Recommendation: Review tomorrow's key levels tonight.`;
 
         const id = createThread(recapText, 'model');
         updateThread(id, { title: `Daily Recap - ${today}` });
@@ -1343,12 +1344,20 @@ const ChatInterface = ({
             feedItems,
             userTier: user.tier,
             userName: user.name,
-            activeThreadId: threadId!
+            activeThreadId: threadId!,
+            instrumentDetails: INSTRUMENT_RULES[settings.selectedInstrument] ? {
+                symbol: settings.selectedInstrument,
+                name: INSTRUMENT_RULES[settings.selectedInstrument].name,
+                tickSize: INSTRUMENT_RULES[settings.selectedInstrument].tickSize,
+                pointValue: INSTRUMENT_RULES[settings.selectedInstrument].pointValue,
+                ivRange: INSTRUMENT_RULES[settings.selectedInstrument].ivRange
+            } : undefined
         };
 
         const agentSettings = {
             customInstructions: settings.customInstructions,
-            drillSergeantMode: settings.alerts.voiceStyle === 'drill'
+            drillSergeantMode: settings.alerts.voiceStyle === 'drill',
+            geminiApiKey: settings.geminiApiKey
         };
 
         try {
@@ -2682,7 +2691,7 @@ const AppContent = () => {
     // Feed States
     const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
     const [newsItems, setNewsItems] = useState<FeedItem[]>([]);
-    const [following, setFollowing] = useState<string[]>(["Walter Bloomberg", "ZeroHedge", "FinancialJuice", "DeltaOne"]);
+    const [following, setFollowing] = useState<string[]>(["FinancialJuice"]);
 
     // Psych State (Lifted for Agent Context)
     const [psychState, setPsychState] = useState<{ score: number, state: EmotionalState, tiltCount: number }>({
@@ -2860,7 +2869,7 @@ Respond in JSON format ONLY:
 
     useEffect(() => {
         fetchFeed(); // Initial fetch
-        const interval = setInterval(() => fetchFeed(20), 60000); // Poll every 1 minute (60s)
+        const interval = setInterval(() => fetchFeed(20), 5000); // Poll every 5 seconds
 
         return () => clearInterval(interval);
     }, [fetchFeed]);
@@ -3009,7 +3018,6 @@ Respond in JSON format ONLY:
                                 erScore={psychState.score}
                                 erState={psychState.state}
                                 tiltCount={psychState.tiltCount}
-                                settings={settings}
                             />
                         )}
 
