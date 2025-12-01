@@ -14,6 +14,7 @@ import {
 import { GoogleGenAI, Modality, LiveServerMessage, Chat, GenerateContentResponse } from "@google/genai";
 import { triggerEmotionalAlert, EmotionalState, playTone } from './emotionalAlerts';
 import { generateAgentResponse, AgentContext } from './agentFrame';
+import { ProjectXService, ProjectXAccount } from './projectXService';
 
 // --- Constants ---
 const GOLD = "#FFC038";
@@ -92,6 +93,7 @@ type AppSettings = {
     showUpgradeCTAText: boolean;
     xApiKey: string;
     xBearerToken: string;
+    topstepXUserName: string;
     topstepXApiKey: string;
     customInstructions: string;
     drillSergeantMode: boolean;
@@ -315,6 +317,7 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
             showUpgradeCTAText: true,
             xApiKey: '',
             xBearerToken: 'AAAAAAAAAAAAAAAAAAAAAB/L5gEAAAAAjeqUBtpMWRv3yVSiD8vc1HPvg1U=Rt4RbYZS5CPTE9lAYlo9wxs7m67teTzJh6I2I1HeNikHckBmXf',
+            topstepXUserName: '',
             topstepXApiKey: '',
             customInstructions: '',
             drillSergeantMode: false,
@@ -776,7 +779,9 @@ const EmotionalResonanceMonitor = ({
             'crap', 'piss', 'pissed',
             'hell', 'bloody',
             'cock', 'dick', 'pussy', 'cunt',
-            'motherfucker', 'son of a bitch'
+            'motherfucker', 'son of a bitch',
+            // Additional curse phrases
+            'god damn it', 'you have got to be kidding me', 'oh my god'
         ];
         const AGGRESSIVE_WORDS = ['stupid', 'idiot', 'hate', 'lose', 'losing', 'bad', 'worst', 'trash', 'useless', 'garbage'];
 
@@ -1479,17 +1484,97 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
         return () => { if (timerRef.current) clearInterval(timerRef.current); };
     }, []);
 
-    // Mock PNL Update Logic
+    // ProjectX Integration State
+    const [accounts, setAccounts] = useState<ProjectXAccount[]>([]);
+    const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
+    const [token, setToken] = useState<string | null>(null);
+
+    // Connect to ProjectX
     useEffect(() => {
-        if (settings.algoActive) {
-            const interval = setInterval(() => {
-                // Randomly fluctuate PNL for demo
-                const change = (Math.random() - 0.45) * 50;
-                updateSettings({ currentPNL: settings.currentPNL + change });
-            }, 3000);
-            return () => clearInterval(interval);
-        }
-    }, [settings.algoActive, settings.currentPNL]);
+        const connect = async () => {
+            if (settings.topstepAccountConnected && settings.topstepXUserName && settings.topstepXApiKey) {
+                try {
+                    setConnectionStatus('connecting');
+                    // 1. Login
+                    const auth = await ProjectXService.login(settings.topstepXUserName, settings.topstepXApiKey);
+                    if (auth.success && auth.token) {
+                        setToken(auth.token);
+                        // 2. Fetch Accounts
+                        const accs = await ProjectXService.searchAccounts(auth.token);
+                        setAccounts(accs);
+                        setConnectionStatus('connected');
+                    } else {
+                        console.error("ProjectX Auth Failed", auth);
+                        setConnectionStatus('error');
+                    }
+                } catch (e) {
+                    console.error("ProjectX Connection Error", e);
+                    setConnectionStatus('error');
+                }
+            } else {
+                setConnectionStatus('disconnected');
+                setAccounts([]);
+            }
+        };
+        connect();
+    }, [settings.topstepAccountConnected, settings.topstepXUserName, settings.topstepXApiKey]);
+
+    // SignalR & PnL Tracking
+    useEffect(() => {
+        let mounted = true;
+
+        const initSignalR = async () => {
+            if (connectionStatus === 'connected' && token && settings.selectedAccount) {
+                const accountId = Number(settings.selectedAccount);
+                if (isNaN(accountId)) return;
+
+                try {
+                    // Fetch initial daily PnL (sum of today's trades)
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const trades = await ProjectXService.searchTrades(token, accountId, today.toISOString());
+                    const initialPnL = trades.reduce((sum, t) => sum + (t.profitAndLoss || 0), 0);
+
+                    if (mounted) {
+                        updateSettings({ currentPNL: initialPnL });
+                    }
+
+                    // Connect SignalR
+                    await ProjectXService.connectSignalR(
+                        token,
+                        accountId,
+                        (accData) => {
+                            // Account update
+                            console.log("Account Update:", accData);
+                        },
+                        (tradeData) => {
+                            // Trade update - update PnL
+                            console.log("Trade Update:", tradeData);
+                            if (tradeData.profitAndLoss !== undefined && tradeData.profitAndLoss !== null) {
+                                // Add this trade's PnL to current
+                                // Note: This is a simplification. Ideally we track all trades.
+                                // But since we fetched initial PnL, adding new trade PnL should work for the session.
+                                // However, searchTrades might return the trade that just happened if we poll.
+                                // SignalR gives us the trade event.
+                                updateSettings({ currentPNL: (prev: any) => (prev.currentPNL || 0) + tradeData.profitAndLoss });
+                            }
+                        }
+                    );
+                } catch (e) {
+                    console.error("SignalR Error", e);
+                }
+            }
+        };
+
+        initSignalR();
+
+        return () => {
+            mounted = false;
+            if (settings.selectedAccount) {
+                ProjectXService.disconnectSignalR(Number(settings.selectedAccount));
+            }
+        };
+    }, [connectionStatus, token, settings.selectedAccount]);
 
     const isGlobalLocked = user.tier === 'free';
 
@@ -1585,12 +1670,16 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
                                                         className="w-full bg-black border border-[#FFC038]/20 rounded px-2 py-1.5 text-xs text-[#FFC038] focus:border-[#FFC038] outline-none font-mono appearance-none"
                                                     >
                                                         <option value="">-- Select Account --</option>
-                                                        <option value="TS-123456">TS-123456 ($50k Combine)</option>
-                                                        <option value="TS-789012">TS-789012 ($150k Express)</option>
-                                                        <option value="TS-345678">TS-345678 (Funded)</option>
+                                                        {accounts.map(acc => (
+                                                            <option key={acc.id} value={acc.id}>
+                                                                {acc.name} ({acc.id}) - ${acc.balance.toLocaleString()}
+                                                            </option>
+                                                        ))}
                                                     </select>
                                                     <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[#FFC038]/50 pointer-events-none" />
                                                 </div>
+                                                {connectionStatus === 'error' && <span className="text-[9px] text-red-500">Connection Failed</span>}
+                                                {connectionStatus === 'connecting' && <span className="text-[9px] text-[#FFC038]">Connecting...</span>}
                                             </div>
 
                                             {/* Bi-directional PNL Bar */}
@@ -1781,263 +1870,327 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
         setTimeout(() => setSaveStatus('saved'), 500);
         setTimeout(() => setSaveStatus('idle'), 2000);
     };
+
     // Helper to preview tone
     const previewTone = () => {
         playTone(523.25, settings.alerts.toneType, 0.5, 0.2);
     };
 
+    const tabs = [
+        { id: 'interface' as const, label: 'Interface', icon: LayoutDashboard },
+        { id: 'alerts' as const, label: 'Alerts & Audio', icon: Volume2 },
+        { id: 'uplinks' as const, label: 'External Uplinks', icon: LinkIcon },
+        { id: 'models' as const, label: 'Algo Models', icon: Brain },
+        { id: 'dev' as const, label: 'Developer Mode', icon: Terminal }
+    ];
+
     return (
-        <Modal isOpen={isOpen} onClose={onClose} className="w-full max-w-2xl">
-            <div className="p-6">
-                <h2 className="text-xl font-bold text-[#FFC038] font-['Roboto'] mb-6 flex items-center gap-2">
-                    <Settings className="w-6 h-6" /> SYSTEM CONFIGURATION
-                </h2>
-
-                <div className="space-y-8">
-                    {/* General UI */}
-                    <section>
-                        <h3 className="text-xs font-bold text-[#FFC038]/50 uppercase border-b border-[#FFC038]/20 pb-2 mb-4">Interface</h3>
-                        <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10 mb-2">
-                            <span className="text-sm text-[#FFC038]">Anti-Anxiety Mode</span>
-                            <Toggle
-                                checked={!settings.showUpgradeCTAText}
-                                onChange={() => updateSettings({ showUpgradeCTAText: !settings.showUpgradeCTAText })}
-                            />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4 mt-4">
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Daily Profit Target ($)</label>
-                                <input
-                                    type="number"
-                                    value={settings.dailyProfitTarget}
-                                    onChange={(e) => updateSettings({ dailyProfitTarget: Number(e.target.value) })}
-                                    className="bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
-                                />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Daily Loss Limit ($)</label>
-                                <input
-                                    type="number"
-                                    value={settings.dailyLossLimit}
-                                    onChange={(e) => updateSettings({ dailyLossLimit: Number(e.target.value) })}
-                                    className="bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
-                                />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Max Trades / Interval</label>
-                                <input
-                                    type="number"
-                                    value={settings.maxTradesPerInterval}
-                                    onChange={(e) => updateSettings({ maxTradesPerInterval: Number(e.target.value) })}
-                                    className="bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
-                                />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Interval Duration</label>
-                                <div className="relative">
-                                    <select
-                                        value={settings.tradeIntervalMinutes}
-                                        onChange={(e) => updateSettings({ tradeIntervalMinutes: Number(e.target.value) })}
-                                        className="w-full bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono appearance-none"
-                                    >
-                                        <option value={5}>5 Minutes</option>
-                                        <option value={10}>10 Minutes</option>
-                                        <option value={15}>15 Minutes</option>
-                                        <option value={30}>30 Minutes</option>
-                                        <option value={60}>60 Minutes</option>
-                                    </select>
-                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#FFC038]/50 pointer-events-none" />
-                                </div>
-                            </div>
-                        </div>
-                    </section>
-
-                    {/* Alerts & Audio */}
-                    <section>
-                        <h3 className="text-xs font-bold text-[#FFC038]/50 uppercase border-b border-[#FFC038]/20 pb-2 mb-4">Alerts & Audio</h3>
-
-                        <div className="space-y-3">
-                            {/* Toggles */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                    <span className="text-xs text-[#FFC038]">Emotional Alerts</span>
-                                    <Toggle
-                                        checked={settings.alerts.enabled}
-                                        onChange={() => updateSettings({ alerts: { ...settings.alerts, enabled: !settings.alerts.enabled } })}
-                                    />
-                                </div>
-                                <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                    <span className="text-xs text-[#FFC038]">Voice Alerts</span>
-                                    <Toggle
-                                        checked={settings.alerts.voiceEnabled}
-                                        onChange={() => updateSettings({ alerts: { ...settings.alerts, voiceEnabled: !settings.alerts.voiceEnabled } })}
-                                    />
-                                </div>
-                                <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                    <span className="text-xs text-[#FFC038]">Tilt Escalation</span>
-                                    <Toggle
-                                        checked={settings.alerts.escalationEnabled}
-                                        onChange={() => updateSettings({ alerts: { ...settings.alerts, escalationEnabled: !settings.alerts.escalationEnabled } })}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Voice Style */}
-                            <div className="p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                <label className="text-xs text-[#FFC038]/70 block mb-2">Voice Alert Style</label>
-                                <div className="flex gap-2">
-                                    {['calm', 'motivational', 'drill'].map((style) => (
-                                        <button
-                                            key={style}
-                                            onClick={() => updateSettings({ alerts: { ...settings.alerts, voiceStyle: style as any } })}
-                                            className={cn(
-                                                "flex-1 py-2 text-xs border rounded transition-all uppercase font-bold",
-                                                settings.alerts.voiceStyle === style
-                                                    ? "bg-[#FFC038] text-black border-[#FFC038]"
-                                                    : "bg-black text-[#FFC038]/50 border-[#FFC038]/20 hover:border-[#FFC038]"
-                                            )}
-                                        >
-                                            {style === 'drill' ? 'Drill Sergeant' : style}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Tone Type */}
-                            <div className="p-3 bg-[#140a00] rounded border border-[#FFC038]/10 flex items-center justify-between">
-                                <div>
-                                    <label className="text-xs text-[#FFC038]/70 block mb-1">Alert Tone</label>
-                                    <select
-                                        value={settings.alerts.toneType}
-                                        onChange={(e) => updateSettings({ alerts: { ...settings.alerts, toneType: e.target.value as any } })}
-                                        className="bg-black text-[#FFC038] text-xs border border-[#FFC038]/30 rounded p-1 outline-none"
-                                    >
-                                        <option value="sine">Sine Wave (Soft)</option>
-                                        <option value="triangle">Triangle (Bright)</option>
-                                        <option value="square">Square (8-bit)</option>
-                                        <option value="sawtooth">Sawtooth (Sharp)</option>
-                                    </select>
-                                </div>
-                                <Button onClick={previewTone} variant="secondary" className="text-xs h-8">
-                                    <Play className="w-3 h-3" /> Preview
-                                </Button>
-                            </div>
-                        </div>
-                    </section>
-
-                    {/* API Keys */}
-                    <section>
-                        <h3 className="text-xs font-bold text-[#FFC038]/50 uppercase border-b border-[#FFC038]/20 pb-2 mb-4">External Uplinks</h3>
-                        <div className="grid grid-cols-1 gap-4">
-                            <div>
-                                <label className="block text-[10px] text-[#FFC038]/70 mb-1">X / Twitter API Key</label>
-                                <input
-                                    type="password"
-                                    value={settings.xApiKey}
-                                    onChange={e => updateSettings({ xApiKey: e.target.value })}
-                                    className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-[10px] text-[#FFC038]/70 mb-1">X / Twitter Bearer Token</label>
-                                <input
-                                    type="password"
-                                    value={settings.xBearerToken}
-                                    onChange={e => updateSettings({ xBearerToken: e.target.value })}
-                                    className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-[10px] text-[#FFC038]/70 mb-1">TopstepX API Key</label>
-                                <input
-                                    type="password"
-                                    value={settings.topstepXApiKey}
-                                    onChange={e => updateSettings({ topstepXApiKey: e.target.value })}
-                                    className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
-                                />
-                            </div>
-
-                            <div className="flex justify-end pt-2">
-                                <Button
-                                    onClick={handleSave}
-                                    variant="primary"
-                                    className={cn("w-full md:w-auto transition-all", saveStatus === 'saved' ? "bg-emerald-500 border-emerald-500 text-black" : "")}
-                                >
-                                    {saveStatus === 'saving' ? (
-                                        <><Loader2 className="w-3 h-3 animate-spin mr-2" /> Saving...</>
-                                    ) : saveStatus === 'saved' ? (
-                                        <><Check className="w-3 h-3 mr-2" /> Changes Saved</>
-                                    ) : (
-                                        <><Save className="w-3 h-3 mr-2" /> Save Changes</>
+        <Modal isOpen={isOpen} onClose={onClose} className="w-full max-w-4xl">
+            <div className="flex h-[600px]">
+                {/* Left Sidebar Navigation */}
+                <div className="w-56 bg-[#0a0a00] border-r border-[#FFC038]/20 flex flex-col shrink-0">
+                    <div className="p-4 border-b border-[#FFC038]/20">
+                        <h2 className="text-base font-bold text-[#FFC038] font-['Roboto'] flex items-center gap-2">
+                            <Settings className="w-5 h-5" /> Settings
+                        </h2>
+                    </div>
+                    <nav className="flex-1 p-2">
+                        {tabs.map(tab => {
+                            const Icon = tab.icon;
+                            return (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id)}
+                                    className={cn(
+                                        "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all mb-1",
+                                        activeTab === tab.id
+                                            ? "bg-[#FFC038]/10 text-[#FFC038] border border-[#FFC038]/30"
+                                            : "text-[#FFC038]/60 hover:bg-[#FFC038]/5 hover:text-[#FFC038]"
                                     )}
-                                </Button>
-                            </div>
-                        </div>
-                    </section>
+                                >
+                                    <Icon className="w-4 h-4 shrink-0" />
+                                    <span className="text-sm font-medium">{tab.label}</span>
+                                </button>
+                            );
+                        })}
+                    </nav>
+                </div>
 
-                    {/* Trading Models */}
-                    <section>
-                        <h3 className="text-xs font-bold text-[#FFC038]/50 uppercase border-b border-[#FFC038]/20 pb-2 mb-4">Algo Models</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {Object.entries(settings.tradingModels).map(([key, val]) => (
-                                <div key={key} className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                    <span className="text-xs text-[#FFC038] capitalize">{key.replace(/([A-Z])/g, ' $1').replace('Twenty Two', '22')}</span>
-                                    <Toggle
-                                        checked={val as boolean}
-                                        onChange={() => updateSettings({
-                                            tradingModels: { ...settings.tradingModels, [key]: !val }
-                                        })}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    </section>
+                {/* Right Content Area */}
+                <div className="flex-1 flex flex-col">
+                    <div className="flex-1 overflow-y-auto p-6">
+                        {/* Interface Tab */}
+                        {activeTab === 'interface' && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
+                                <div>
+                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">Interface Settings</h3>
 
-                    {/* Dev Mode */}
-                    <section>
-                        <h3 className="text-xs font-bold text-[#FFC038]/50 uppercase border-b border-[#FFC038]/20 pb-2 mb-4">Developer Mode</h3>
-
-                        <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10 mb-3">
-                            <span className="text-sm text-[#FFC038]">Dev Mode</span>
-                            <Toggle
-                                checked={settings.devMode}
-                                onChange={() => updateSettings({ devMode: !settings.devMode })}
-                            />
-                        </div>
-
-                        {settings.devMode && (
-                            <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
-                                <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                    <div className="flex items-center gap-2">
-                                        <Flame className="w-3 h-3 text-[#FFC038]" />
-                                        <span className="text-xs text-[#FFC038]">Fire Test Trade</span>
+                                    <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10 mb-4">
+                                        <span className="text-sm text-[#FFC038]">Anti-Anxiety Mode</span>
+                                        <Toggle
+                                            checked={!settings.showUpgradeCTAText}
+                                            onChange={() => updateSettings({ showUpgradeCTAText: !settings.showUpgradeCTAText })}
+                                        />
                                     </div>
-                                    <Button
-                                        onClick={() => {
-                                            console.log('🔥 TEST TRADE FIRED');
-                                            alert('Test trade executed!');
-                                        }}
-                                        variant="primary"
-                                        className="text-[10px] px-3 py-1 h-auto"
-                                    >
-                                        FIRE
-                                    </Button>
-                                </div>
 
-                                <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                    <div className="flex items-center gap-2">
-                                        <Terminal className="w-3 h-3 text-[#FFC038]" />
-                                        <span className="text-xs text-[#FFC038]">Mock Data</span>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="flex flex-col gap-2">
+                                            <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Daily Profit Target ($)</label>
+                                            <input
+                                                type="number"
+                                                value={settings.dailyProfitTarget}
+                                                onChange={(e) => updateSettings({ dailyProfitTarget: Number(e.target.value) })}
+                                                className="bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-2">
+                                            <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Daily Loss Limit ($)</label>
+                                            <input
+                                                type="number"
+                                                value={settings.dailyLossLimit}
+                                                onChange={(e) => updateSettings({ dailyLossLimit: Number(e.target.value) })}
+                                                className="bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-2">
+                                            <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Max Trades / Interval</label>
+                                            <input
+                                                type="number"
+                                                value={settings.maxTradesPerInterval}
+                                                onChange={(e) => updateSettings({ maxTradesPerInterval: Number(e.target.value) })}
+                                                className="bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-2">
+                                            <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Interval Duration</label>
+                                            <div className="relative">
+                                                <select
+                                                    value={settings.tradeIntervalMinutes}
+                                                    onChange={(e) => updateSettings({ tradeIntervalMinutes: Number(e.target.value) })}
+                                                    className="w-full bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono appearance-none"
+                                                >
+                                                    <option value={5}>5 Minutes</option>
+                                                    <option value={10}>10 Minutes</option>
+                                                    <option value={15}>15 Minutes</option>
+                                                    <option value={30}>30 Minutes</option>
+                                                    <option value={60}>60 Minutes</option>
+                                                </select>
+                                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#FFC038]/50 pointer-events-none" />
+                                            </div>
+                                        </div>
                                     </div>
-                                    <Toggle
-                                        checked={settings.mockDataEnabled}
-                                        onChange={() => updateSettings({ mockDataEnabled: !settings.mockDataEnabled })}
-                                    />
                                 </div>
                             </div>
                         )}
-                    </section>
+
+                        {/* Alerts & Audio Tab */}
+                        {activeTab === 'alerts' && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
+                                <div>
+                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">Alerts & Audio Settings</h3>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                                        <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                            <span className="text-xs text-[#FFC038]">Emotional Alerts</span>
+                                            <Toggle
+                                                checked={settings.alerts.enabled}
+                                                onChange={() => updateSettings({ alerts: { ...settings.alerts, enabled: !settings.alerts.enabled } })}
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                            <span className="text-xs text-[#FFC038]">Voice Alerts</span>
+                                            <Toggle
+                                                checked={settings.alerts.voiceEnabled}
+                                                onChange={() => updateSettings({ alerts: { ...settings.alerts, voiceEnabled: !settings.alerts.voiceEnabled } })}
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                            <span className="text-xs text-[#FFC038]">Tilt Escalation</span>
+                                            <Toggle
+                                                checked={settings.alerts.escalationEnabled}
+                                                onChange={() => updateSettings({ alerts: { ...settings.alerts, escalationEnabled: !settings.alerts.escalationEnabled } })}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="p-3 bg-[#140a00] rounded border border-[#FFC038]/10 mb-4">
+                                        <label className="text-xs text-[#FFC038]/70 block mb-2">Voice Alert Style</label>
+                                        <div className="flex gap-2">
+                                            {['calm', 'motivational', 'drill'].map((style) => (
+                                                <button
+                                                    key={style}
+                                                    onClick={() => updateSettings({ alerts: { ...settings.alerts, voiceStyle: style as any } })}
+                                                    className={cn(
+                                                        "flex-1 py-2 text-xs border rounded transition-all uppercase font-bold",
+                                                        settings.alerts.voiceStyle === style
+                                                            ? "bg-[#FFC038] text-black border-[#FFC038]"
+                                                            : "bg-black text-[#FFC038]/50 border-[#FFC038]/20 hover:border-[#FFC038]"
+                                                    )}
+                                                >
+                                                    {style === 'drill' ? 'Drill Sergeant' : style}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="p-3 bg-[#140a00] rounded border border-[#FFC038]/10 flex items-center justify-between">
+                                        <div>
+                                            <label className="text-xs text-[#FFC038]/70 block mb-1">Alert Tone</label>
+                                            <select
+                                                value={settings.alerts.toneType}
+                                                onChange={(e) => updateSettings({ alerts: { ...settings.alerts, toneType: e.target.value as any } })}
+                                                className="bg-black text-[#FFC038] text-xs border border-[#FFC038]/30 rounded p-1 outline-none"
+                                            >
+                                                <option value="sine">Sine Wave (Soft)</option>
+                                                <option value="triangle">Triangle (Bright)</option>
+                                                <option value="square">Square (8-bit)</option>
+                                                <option value="sawtooth">Sawtooth (Sharp)</option>
+                                            </select>
+                                        </div>
+                                        <Button onClick={previewTone} variant="secondary" className="text-xs h-8">
+                                            <Play className="w-3 h-3" /> Preview
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* External Uplinks Tab */}
+                        {activeTab === 'uplinks' && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
+                                <div>
+                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">External Uplinks</h3>
+
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">X / Twitter API Key</label>
+                                            <input
+                                                type="password"
+                                                value={settings.xApiKey}
+                                                onChange={e => updateSettings({ xApiKey: e.target.value })}
+                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">X / Twitter Bearer Token</label>
+                                            <input
+                                                type="password"
+                                                value={settings.xBearerToken}
+                                                onChange={e => updateSettings({ xBearerToken: e.target.value })}
+                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">TopstepX Username</label>
+                                            <input
+                                                type="text"
+                                                value={settings.topstepXUserName}
+                                                onChange={e => updateSettings({ topstepXUserName: e.target.value })}
+                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">TopstepX API Key</label>
+                                            <input
+                                                type="password"
+                                                value={settings.topstepXApiKey}
+                                                onChange={e => updateSettings({ topstepXApiKey: e.target.value })}
+                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                            />
+                                        </div>
+
+                                        <div className="flex justify-end pt-2">
+                                            <Button
+                                                onClick={handleSave}
+                                                variant="primary"
+                                                className={cn("w-full md:w-auto transition-all", saveStatus === 'saved' ? "bg-emerald-500 border-emerald-500 text-black" : "")}
+                                            >
+                                                {saveStatus === 'saving' ? (
+                                                    <><Loader2 className="w-3 h-3 animate-spin mr-2" /> Saving...</>
+                                                ) : saveStatus === 'saved' ? (
+                                                    <><Check className="w-3 h-3 mr-2" /> Changes Saved</>
+                                                ) : (
+                                                    <><Save className="w-3 h-3 mr-2" /> Save Changes</>
+                                                )}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Algo Models Tab */}
+                        {activeTab === 'models' && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
+                                <div>
+                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">Algo Models</h3>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        {Object.entries(settings.tradingModels).map(([key, val]) => (
+                                            <div key={key} className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                                <span className="text-xs text-[#FFC038] capitalize">{key.replace(/([A-Z])/g, ' $1').replace('Twenty Two', '22')}</span>
+                                                <Toggle
+                                                    checked={val as boolean}
+                                                    onChange={() => updateSettings({
+                                                        tradingModels: { ...settings.tradingModels, [key]: !val }
+                                                    })}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Developer Mode Tab */}
+                        {activeTab === 'dev' && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
+                                <div>
+                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">Developer Mode</h3>
+
+                                    <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10 mb-3">
+                                        <span className="text-sm text-[#FFC038]">Dev Mode</span>
+                                        <Toggle
+                                            checked={settings.devMode}
+                                            onChange={() => updateSettings({ devMode: !settings.devMode })}
+                                        />
+                                    </div>
+
+                                    {settings.devMode && (
+                                        <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                                            <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                                <div className="flex items-center gap-2">
+                                                    <Flame className="w-3 h-3 text-[#FFC038]" />
+                                                    <span className="text-xs text-[#FFC038]">Fire Test Trade</span>
+                                                </div>
+                                                <Button
+                                                    onClick={() => {
+                                                        console.log('🔥 TEST TRADE FIRED');
+                                                        alert('Test trade executed!');
+                                                    }}
+                                                    variant="primary"
+                                                    className="text-[10px] px-3 py-1 h-auto"
+                                                >
+                                                    FIRE
+                                                </Button>
+                                            </div>
+
+                                            <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                                <div className="flex items-center gap-2">
+                                                    <Terminal className="w-3 h-3 text-[#FFC038]" />
+                                                    <span className="text-xs text-[#FFC038]">Mock Data</span>
+                                                </div>
+                                                <Toggle
+                                                    checked={settings.mockDataEnabled}
+                                                    onChange={() => updateSettings({ mockDataEnabled: !settings.mockDataEnabled })}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </Modal>
