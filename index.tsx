@@ -111,7 +111,13 @@ type AppSettings = {
         escalationEnabled: boolean;
         toneType: 'sine' | 'square' | 'sawtooth' | 'triangle';
         voiceStyle: 'calm' | 'motivational' | 'drill';
-    }
+    };
+    // New Account Tracker & Algo Settings
+    topstepAccountConnected: boolean;
+    algoActive: boolean;
+    currentPNL: number;
+    tradingModelsExpanded: boolean;
+    accountTrackerExpanded: boolean;
 };
 
 type OnboardingData = {
@@ -322,7 +328,13 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
                 escalationEnabled: true,
                 toneType: 'sine',
                 voiceStyle: 'motivational'
-            }
+            },
+            // New Account Tracker & Algo Settings
+            topstepAccountConnected: false,
+            algoActive: false,
+            currentPNL: 0,
+            tradingModelsExpanded: false,
+            accountTrackerExpanded: false
         };
         const loaded = saved ? JSON.parse(saved) : {};
         return {
@@ -380,7 +392,6 @@ const IVIndicator = ({ change }: { change: number }) => {
 // 1. Error Boundary
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
     state = { hasError: false };
-    constructor(props: { children: React.ReactNode }) { super(props); }
     static getDerivedStateFromError() { return { hasError: true }; }
     componentDidCatch(error: any, info: any) { console.error("Pulse Error:", error, info); }
     render() {
@@ -639,6 +650,27 @@ const EmotionalResonanceMonitor = ({
             // Trigger Emotional Alerts Engine
             triggerEmotionalAlert(state, tiltCountRef.current, settings.alerts);
 
+            // DUAL TILT WARNING: Special override for 2nd tilt
+            if (state === 'tilt' && tiltCountRef.current === 2) {
+                // Force escalation message
+                setTimeout(() => {
+                    playTone(110, settings.alerts.toneType, 2.0, 0.3); // Loud, long warning tone
+
+                    if (settings.alerts.voiceEnabled && 'speechSynthesis' in window) {
+                        window.speechSynthesis.cancel();
+                        const ut = new SpeechSynthesisUtterance(
+                            settings.alerts.voiceStyle === 'drill'
+                                ? "SECOND TILT INFRACTION! STEP AWAY FROM YOUR TRADING SETUP IMMEDIATELY!"
+                                : "You've hit tilt twice. Please step away from your trading setup and take a break."
+                        );
+                        ut.rate = 1.0;
+                        ut.pitch = 1.0;
+                        ut.volume = 1.0;
+                        window.speechSynthesis.speak(ut);
+                    }
+                }, 600);
+            }
+
             lastStateRef.current = state;
         }
 
@@ -725,30 +757,50 @@ const EmotionalResonanceMonitor = ({
     };
 
     const analyzeText = (text: string) => {
-        const CURSE_WORDS = ['shit', 'fuck', 'damn', 'bitch', 'crap', 'hell', 'ass', 'bastard', 'piss'];
-        const AGGRESSIVE_WORDS = ['stupid', 'idiot', 'hate', 'lose', 'bad', 'worst', 'trash', 'useless'];
+        // Comprehensive curse word detection
+        const CURSE_WORDS = [
+            'fuck', 'fucking', 'fucked', 'fucker', 'fucks',
+            'shit', 'shitty', 'bullshit',
+            'damn', 'dammit', 'goddamn',
+            'bitch', 'bastard', 'asshole', 'ass',
+            'crap', 'piss', 'pissed',
+            'hell', 'bloody',
+            'cock', 'dick', 'pussy', 'cunt',
+            'motherfucker', 'son of a bitch'
+        ];
+        const AGGRESSIVE_WORDS = ['stupid', 'idiot', 'hate', 'lose', 'losing', 'bad', 'worst', 'trash', 'useless', 'garbage'];
 
-        let penalty = 0;
-        let isCurse = false;
+        let curseCount = 0;
+        let hasAggressive = false;
 
-        // Count curses
+        // Count curse words
         CURSE_WORDS.forEach(w => {
             if (text.includes(w)) {
-                penalty += 0.7;
-                isCurse = true;
+                curseCount++;
             }
         });
 
-        if (isCurse) {
-            penalty += 1.3; // Base aggression for cursing
-        } else if (AGGRESSIVE_WORDS.some(w => text.includes(w))) {
-            penalty += 1.3;
-        }
+        // Check for aggressive language
+        hasAggressive = AGGRESSIVE_WORDS.some(w => text.includes(w));
 
-        if (penalty > 0) {
-            applyPenalty(penalty, "Verbal Infraction");
+        // Apply Penalties
+        let penalty = 0;
+
+        if (curseCount >= 3) {
+            // Batch penalty for multiple curses (3 or more)
+            penalty = 5.0;
+            applyPenalty(penalty, `Multiple Curses (${curseCount} detected)`);
+        } else if (curseCount > 0) {
+            // Individual penalty per curse word
+            penalty = curseCount * 0.7;
+            applyPenalty(penalty, `Curse Word(s) (${curseCount})`);
+        } else if (hasAggressive) {
+            // Aggressive language without cursing
+            penalty = 1.3;
+            applyPenalty(penalty, "Aggressive Language");
         }
     };
+
 
     // Recovery Logic (+0.25 every 30s)
     useEffect(() => {
@@ -1417,6 +1469,18 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
         return () => { if (timerRef.current) clearInterval(timerRef.current); };
     }, []);
 
+    // Mock PNL Update Logic
+    useEffect(() => {
+        if (settings.algoActive) {
+            const interval = setInterval(() => {
+                // Randomly fluctuate PNL for demo
+                const change = (Math.random() - 0.45) * 50;
+                updateSettings({ currentPNL: settings.currentPNL + change });
+            }, 3000);
+            return () => clearInterval(interval);
+        }
+    }, [settings.algoActive, settings.currentPNL]);
+
     const isGlobalLocked = user.tier === 'free';
 
     return (
@@ -1425,6 +1489,27 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
             isCollapsed ? "w-14" : "w-80"
         )}>
             <StopMonitoringModal isOpen={showStopWarning} onContinue={cancelStopMonitoring} onStop={confirmStopMonitoring} />
+
+            {/* PNL Ticker (Top Right Overlay) */}
+            {settings.algoActive && !isCollapsed && (
+                <div className="fixed top-4 right-4 z-50 animate-in fade-in slide-in-from-top-4">
+                    <div className="flex items-center gap-2 bg-[#050500] border border-[#FFC038]/30 rounded-full px-4 py-1.5 shadow-[0_0_20px_rgba(255,192,56,0.15)]">
+                        <div className="flex items-center gap-2 border-r border-[#FFC038]/20 pr-3 mr-1">
+                            <Activity className="w-3 h-3 text-[#FFC038] animate-pulse" />
+                            <span className="text-[10px] font-bold text-[#FFC038] tracking-widest font-['Roboto']">ALGO ACTIVE</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-[#FFC038]/60 font-mono">PNL:</span>
+                            <span className={cn(
+                                "text-sm font-bold font-mono min-w-[80px] text-right",
+                                settings.currentPNL >= 0 ? "text-[#00FF85]" : "text-[#FF4040]"
+                            )}>
+                                {settings.currentPNL >= 0 ? '+' : '-'}${Math.abs(settings.currentPNL).toFixed(2)}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="p-4 border-b border-[#FFC038]/20 flex justify-between items-center bg-[#050500] z-30 relative h-14 shrink-0">
                 {!isCollapsed && (
@@ -1450,7 +1535,75 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
             {!isCollapsed && (
                 <div className="flex-1 overflow-y-auto p-4 space-y-4 relative z-0">
 
-                    {/* 1. PsychAssist */}
+                    {/* 1. Account Tracker (New) */}
+                    <div className="bg-[#140a00] border border-[#FFC038]/20 rounded-lg overflow-hidden transition-all">
+                        <div
+                            className="p-3 flex items-center justify-between cursor-pointer hover:bg-[#FFC038]/5"
+                            onClick={() => updateSettings({ accountTrackerExpanded: !settings.accountTrackerExpanded })}
+                        >
+                            <div className="flex items-center gap-2 text-[#FFC038]">
+                                <Wallet className="w-4 h-4" />
+                                <span className="text-xs font-bold">Account Tracker</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded", settings.topstepAccountConnected ? "bg-[#00FF85]/10 text-[#00FF85]" : "bg-red-900/20 text-red-500")}>
+                                    {settings.topstepAccountConnected ? 'CONNECTED' : 'OFFLINE'}
+                                </span>
+                                {settings.accountTrackerExpanded ? <ChevronUp className="w-3 h-3 text-[#FFC038]/50" /> : <ChevronDown className="w-3 h-3 text-[#FFC038]/50" />}
+                            </div>
+                        </div>
+
+                        {settings.accountTrackerExpanded && (
+                            <div className="p-3 border-t border-[#FFC038]/10 bg-[#0a0a00] animate-in slide-in-from-top-2">
+                                <div className="space-y-3">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-[10px] text-[#FFC038]/70">TopStepX Connection</span>
+                                        <Toggle
+                                            checked={settings.topstepAccountConnected}
+                                            onChange={() => updateSettings({ topstepAccountConnected: !settings.topstepAccountConnected })}
+                                        />
+                                    </div>
+                                    {settings.topstepAccountConnected && (
+                                        <div className="space-y-2">
+                                            <div className="flex flex-col gap-1">
+                                                <label className="text-[9px] text-[#FFC038]/50 uppercase">API Key</label>
+                                                <input
+                                                    type="password"
+                                                    value={settings.topstepXApiKey}
+                                                    onChange={(e) => updateSettings({ topstepXApiKey: e.target.value })}
+                                                    placeholder="Enter TopStepX API Key"
+                                                    className="w-full bg-black border border-[#FFC038]/20 rounded px-2 py-1 text-xs text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
+                                                />
+                                            </div>
+                                            <div className="p-2 bg-[#FFC038]/5 rounded border border-[#FFC038]/10">
+                                                <div className="flex justify-between text-[10px] mb-1">
+                                                    <span className="text-[#FFC038]/60">Daily Loss Limit</span>
+                                                    <span className="text-[#FFC038] font-mono">$2,000.00</span>
+                                                </div>
+                                                <div className="w-full h-1 bg-[#FFC038]/10 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-[#00FF85] w-[15%]"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* 2. Algo Status Toggle (Standalone) */}
+                    <div className="bg-[#140a00] border border-[#FFC038]/20 rounded-lg p-3 flex justify-between items-center">
+                        <div className="flex items-center gap-2 text-[#FFC038]">
+                            <Brain className="w-4 h-4" />
+                            <span className="text-xs font-bold">Algo Status</span>
+                        </div>
+                        <Toggle
+                            checked={settings.algoActive}
+                            onChange={() => updateSettings({ algoActive: !settings.algoActive })}
+                        />
+                    </div>
+
+                    {/* 3. PsychAssist */}
                     <div
                         onClick={() => { if (isGlobalLocked) return; }}
                         className={cn(
@@ -1486,7 +1639,7 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
                         )}
                     </div>
 
-                    {/* 2. Blindspots */}
+                    {/* 4. Blindspots */}
                     <LockedCard locked={user.tier === 'pulse' || user.tier === 'free'} mode="cta" title="Blindspots" onUpgrade={() => updateTier('pulse_plus')} className="bg-[#140a00] border border-[#FFC038]/20 p-3">
                         <div className="flex justify-between items-center mb-3">
                             <div className="flex gap-2 items-center text-[#FFC038]">
@@ -1504,33 +1657,40 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
                         </div>
                     </LockedCard>
 
-                    {/* 3. Trading Models */}
-                    <LockedCard locked={user.tier === 'pulse' || user.tier === 'free'} mode="cta" title="Trading Models" onUpgrade={() => updateTier('pulse_plus')} className="bg-[#140a00] border border-[#FFC038]/20 p-3">
-                        <div className="flex justify-between items-center mb-3">
+                    {/* 5. Trading Models (Expandable) */}
+                    <LockedCard locked={user.tier === 'pulse' || user.tier === 'free'} mode="cta" title="Trading Models" onUpgrade={() => updateTier('pulse_plus')} className="bg-[#140a00] border border-[#FFC038]/20 overflow-hidden">
+                        <div
+                            className="p-3 flex items-center justify-between cursor-pointer hover:bg-[#FFC038]/5"
+                            onClick={() => updateSettings({ tradingModelsExpanded: !settings.tradingModelsExpanded })}
+                        >
                             <div className="flex gap-2 items-center text-[#FFC038]">
                                 <Target className="w-4 h-4" />
                                 <span className="text-xs font-bold">Trading Models</span>
                             </div>
+                            {settings.tradingModelsExpanded ? <ChevronUp className="w-3 h-3 text-[#FFC038]/50" /> : <ChevronDown className="w-3 h-3 text-[#FFC038]/50" />}
                         </div>
-                        <div className="space-y-2">
-                            {TRADING_MODELS_CONFIG.map(model => (
-                                <div key={model.key} className="bg-[#0a0a00] p-2 rounded border border-[#FFC038]/10 hover:border-[#FFC038]/30 transition-colors">
-                                    <div className="flex items-center justify-between mb-1">
-                                        <span className="text-xs text-[#FFC038] font-medium">{model.name}</span>
-                                        <Toggle
-                                            checked={!!settings.tradingModels[model.key]}
-                                            onChange={() => updateSettings({
-                                                tradingModels: { ...settings.tradingModels, [model.key]: !settings.tradingModels[model.key] }
-                                            })}
-                                        />
+
+                        {settings.tradingModelsExpanded && (
+                            <div className="space-y-2 p-3 pt-0 animate-in slide-in-from-top-2 border-t border-[#FFC038]/10 mt-1">
+                                {TRADING_MODELS_CONFIG.map(model => (
+                                    <div key={model.key} className="bg-[#0a0a00] p-2 rounded border border-[#FFC038]/10 hover:border-[#FFC038]/30 transition-colors">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="text-xs text-[#FFC038] font-medium">{model.name}</span>
+                                            <Toggle
+                                                checked={!!settings.tradingModels[model.key]}
+                                                onChange={() => updateSettings({
+                                                    tradingModels: { ...settings.tradingModels, [model.key]: !settings.tradingModels[model.key] }
+                                                })}
+                                            />
+                                        </div>
+                                        <div className="text-[9px] text-[#FFC038]/40 font-mono">{model.time}</div>
                                     </div>
-                                    <div className="text-[9px] text-[#FFC038]/40 font-mono">{model.time}</div>
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
+                        )}
                     </LockedCard>
 
-                    {/* 4. Thread History Widget */}
+                    {/* 6. Thread History Widget */}
                     <div className="h-64 border border-[#FFC038]/20 rounded-lg overflow-hidden bg-[#140a00]">
                         <ThreadHistory />
                     </div>
