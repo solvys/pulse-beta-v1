@@ -12,7 +12,7 @@ import {
     Link as LinkIcon, Square, Trash2, Play, Calendar, Loader2, Save
 } from 'lucide-react';
 import { GoogleGenAI, Modality, LiveServerMessage, Chat, GenerateContentResponse } from "@google/genai";
-import { triggerEmotionalAlert, EmotionalState, playTone } from './emotionalAlerts';
+import { triggerEmotionalAlert, EmotionalState, playTone, playTiltBass, playTransitionWarning } from './emotionalAlerts';
 import { generateAgentResponse, AgentContext } from './agentFrame';
 import { ProjectXService, ProjectXAccount } from './projectXService';
 
@@ -99,6 +99,7 @@ type AppSettings = {
     drillSergeantMode: boolean;
     devMode: boolean;
     mockDataEnabled: boolean;
+    showFireTestTrade: boolean;
     tradingModels: {
         fortyFortyClub: boolean;
         chargedUpRippers: boolean;
@@ -323,6 +324,7 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
             drillSergeantMode: false,
             devMode: false,
             mockDataEnabled: false,
+            showFireTestTrade: false,
             tradingModels: {
                 fortyFortyClub: true,
                 chargedUpRippers: false,
@@ -648,6 +650,7 @@ const EmotionalResonanceMonitor = ({
 
     // State Change Sound & Voice Alerts
     const lastStateRef = useRef<EmotionalState>('stable');
+    const tiltSoundIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
         // Sync state to parent
@@ -658,6 +661,11 @@ const EmotionalResonanceMonitor = ({
             if (state === 'tilt') {
                 tiltCountRef.current += 1;
                 setTiltCount(tiltCountRef.current);
+
+                // Play transition warning if coming from stable (skipping neutral)
+                if (lastStateRef.current === 'stable' && settings.alerts.enabled) {
+                    playTransitionWarning(settings.alerts.toneType);
+                }
             }
 
             // Trigger Emotional Alerts Engine
@@ -687,10 +695,42 @@ const EmotionalResonanceMonitor = ({
             lastStateRef.current = state;
         }
 
+        // Continuous Tilt Bass Sound Monitoring
+        if (state === 'tilt' && settings.alerts.enabled) {
+            // Clear any existing interval
+            if (tiltSoundIntervalRef.current) {
+                clearInterval(tiltSoundIntervalRef.current);
+            }
+
+            // Play initial bass sound immediately
+            playTiltBass(settings.alerts.toneType);
+
+            // Set up interval to play bass sound every 2.5 seconds while tilting
+            tiltSoundIntervalRef.current = setInterval(() => {
+                if (settings.alerts.enabled) {
+                    playTiltBass(settings.alerts.toneType);
+                }
+            }, 2500);
+        } else {
+            // Clear interval when not tilting
+            if (tiltSoundIntervalRef.current) {
+                clearInterval(tiltSoundIntervalRef.current);
+                tiltSoundIntervalRef.current = null;
+            }
+        }
+
         // Status Text Update
         if (state === 'stable') setStatusText("Emotional state: Stable");
         else if (state === 'tilt') setStatusText("Emotional state: Tilt Detected");
         else setStatusText("Emotional state: Neutral");
+
+        // Cleanup function
+        return () => {
+            if (tiltSoundIntervalRef.current) {
+                clearInterval(tiltSoundIntervalRef.current);
+                tiltSoundIntervalRef.current = null;
+            }
+        };
 
     }, [state, score, settings.alerts]); // Added score to deps to ensure update
 
@@ -1740,6 +1780,69 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
                         />
                     </div>
 
+                    {/* 2.5. Fire Test Trade Button (Shown when enabled in Dev Mode) */}
+                    {settings.showFireTestTrade && settings.topstepAccountConnected && settings.selectedAccount && (
+                        <div className="bg-[#140a00] border border-[#FF4040]/30 rounded-lg overflow-hidden">
+                            <div className="p-3 flex justify-between items-center bg-[#FF4040]/5">
+                                <div className="flex items-center gap-2 text-[#FF4040]">
+                                    <Flame className="w-4 h-4" />
+                                    <span className="text-xs font-bold">Fire Test Trade</span>
+                                </div>
+                                <Button
+                                    onClick={async () => {
+                                        if (!token) {
+                                            alert('Not authenticated');
+                                            return;
+                                        }
+
+                                        try {
+                                            // Fetch available contracts
+                                            const contracts = await ProjectXService.getAvailableContracts(token, true);
+
+                                            // Find NQ contract (E-mini NASDAQ-100)
+                                            const nqContract = contracts.find(c => c.symbolId === 'F.US.ENQ' && c.activeContract);
+
+                                            if (!nqContract) {
+                                                alert('NQ contract not found');
+                                                return;
+                                            }
+
+                                            // Confirm
+                                            const confirmed = window.confirm(
+                                                `🔥 FIRE TEST TRADE\n\n` +
+                                                `Contract: ${nqContract.name} (${nqContract.description})\n` +
+                                                `Side: BUY\n` +
+                                                `Quantity: 1\n` +
+                                                `Account: ${settings.selectedAccount}\n\n` +
+                                                `This will place a REAL MARKET ORDER. Continue?`
+                                            );
+
+                                            if (!confirmed) return;
+
+                                            // Place order
+                                            const result = await ProjectXService.placeMarketOrder(
+                                                token,
+                                                Number(settings.selectedAccount),
+                                                nqContract.id,
+                                                'buy',
+                                                1
+                                            );
+
+                                            alert(`✅ Order placed successfully!\n\nOrder ID: ${result.orderId}`);
+                                        } catch (error: any) {
+                                            alert(`❌ Order failed:\n\n${error.message}`);
+                                            console.error('Fire Test Trade Error:', error);
+                                        }
+                                    }}
+                                    variant="danger"
+                                    className="text-[10px] px-4 py-1 h-auto bg-[#FF4040] hover:bg-[#FF6060] text-white border-none"
+                                >
+                                    🔥 FIRE
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* 3. PsychAssist */}
                     <div
                         onClick={() => { if (isGlobalLocked) return; }}
@@ -2159,20 +2262,11 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
                                     {settings.devMode && (
                                         <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
                                             <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                                <div className="flex items-center gap-2">
-                                                    <Flame className="w-3 h-3 text-[#FFC038]" />
-                                                    <span className="text-xs text-[#FFC038]">Fire Test Trade</span>
-                                                </div>
-                                                <Button
-                                                    onClick={() => {
-                                                        console.log('🔥 TEST TRADE FIRED');
-                                                        alert('Test trade executed!');
-                                                    }}
-                                                    variant="primary"
-                                                    className="text-[10px] px-3 py-1 h-auto"
-                                                >
-                                                    FIRE
-                                                </Button>
+                                                <span className="text-xs text-[#FFC038]">Show Fire Test Trade</span>
+                                                <Toggle
+                                                    checked={settings.showFireTestTrade}
+                                                    onChange={() => updateSettings({ showFireTestTrade: !settings.showFireTestTrade })}
+                                                />
                                             </div>
 
                                             <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">

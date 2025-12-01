@@ -41,26 +41,79 @@ export const playTone = (freq: number, type: ToneType, duration: number, vol: nu
     const ctx = new AudioContext();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    
+
     osc.type = type;
     osc.frequency.setValueAtTime(freq, ctx.currentTime);
     gain.gain.setValueAtTime(vol, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
-    
+
     osc.connect(gain);
     gain.connect(ctx.destination);
-    
+
     osc.start();
     osc.stop(ctx.currentTime + duration);
+};
+
+// Helper: Play deep bass tilt sound (can be called repeatedly)
+export const playTiltBass = (toneType: ToneType = 'sine') => {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) return;
+
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    // Deep bass frequency with sawtooth for richness
+    osc.type = toneType;
+    osc.frequency.setValueAtTime(80, ctx.currentTime); // Very low bass
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.8);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.8);
+};
+
+// Helper: Play transition warning sound (stable → tilt)
+export const playTransitionWarning = (toneType: ToneType = 'sine') => {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) return;
+
+    const ctx = new AudioContext();
+
+    // Create a descending tone sequence for dramatic effect
+    const frequencies = [440, 370, 294, 220]; // Descending A4 to A3
+    const duration = 0.4; // Each tone
+
+    frequencies.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = toneType;
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+        const startTime = ctx.currentTime + (i * duration * 0.7); // Overlap slightly
+        gain.gain.setValueAtTime(0, startTime);
+        gain.gain.linearRampToValueAtTime(0.25, startTime + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+    });
 };
 
 // Helper: Text to Speech
 const speakAlert = (text: string) => {
     if (!('speechSynthesis' in window)) return;
-    
+
     // Cancel any current speech to prioritize the new alert
     window.speechSynthesis.cancel();
-    
+
     const ut = new SpeechSynthesisUtterance(text);
     ut.rate = 1.1; // Slightly faster for urgency
     ut.pitch = 1.0;
@@ -70,7 +123,7 @@ const speakAlert = (text: string) => {
 
 // Main Trigger Function
 export const triggerEmotionalAlert = (
-    state: EmotionalState, 
+    state: EmotionalState,
     tiltCount: number,
     config: AlertConfig = { enabled: true, voiceEnabled: true, escalationEnabled: true, toneType: 'sine', voiceStyle: 'drill' }
 ) => {

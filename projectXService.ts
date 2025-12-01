@@ -162,6 +162,111 @@ export class ProjectXService {
         }
     }
 
+    static async getAvailableContracts(token: string, live: boolean = true): Promise<any[]> {
+        try {
+            const response = await fetch(`${this.API_URL}/api/Contract/available`, {
+                method: 'POST',
+                headers: {
+                    'accept': 'text/plain',
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ live })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch contracts: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            if (data.success) {
+                return data.contracts;
+            } else {
+                throw new Error(data.errorMessage || "Unknown error fetching contracts");
+            }
+        } catch (error) {
+            console.error("ProjectX Get Contracts Error:", error);
+            throw error;
+        }
+    }
+
+    static async placeMarketOrder(
+        token: string,
+        accountId: number,
+        contractId: string,
+        side: 'buy' | 'sell',
+        size: number
+    ): Promise<any> {
+        try {
+            const response = await fetch(`${this.API_URL}/api/Order/place`, {
+                method: 'POST',
+                headers: {
+                    'accept': 'text/plain',
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    accountId,
+                    contractId,
+                    type: 2, // Market order
+                    side: side === 'buy' ? 0 : 1, // 0 = Bid (buy), 1 = Ask (sell)
+                    size
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Order placement failed: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            if (data.success) {
+                return data;
+            } else {
+                throw new Error(data.errorMessage || "Unknown error placing order");
+            }
+        } catch (error) {
+            console.error("ProjectX Place Order Error:", error);
+            throw error;
+        }
+    }
+
+    static async connectMarketHub(
+        token: string,
+        symbolId: string,
+        onQuoteUpdate: (data: any) => void
+    ): Promise<void> {
+        const MARKET_HUB_URL = 'https://rtc.topstepx.com/hubs/market';
+
+        const marketConnection = new HubConnectionBuilder()
+            .withUrl(`${MARKET_HUB_URL}?access_token=${token}`, {
+                skipNegotiation: true,
+                transport: HttpTransportType.WebSockets,
+                accessTokenFactory: () => token,
+                timeout: 10000
+            })
+            .withAutomaticReconnect()
+            .build();
+
+        marketConnection.on('GatewayQuote', (data) => {
+            console.log('Market Quote Update', data);
+            if (data.symbol === symbolId) {
+                onQuoteUpdate(data);
+            }
+        });
+
+        try {
+            await marketConnection.start();
+            console.log("Market Hub Connected");
+
+            // Subscribe to symbol quotes
+            await marketConnection.invoke('SubscribeQuote', symbolId);
+
+        } catch (err) {
+            console.error('Error starting Market Hub connection:', err);
+            throw err;
+        }
+    }
+
     static async disconnectSignalR(accountId?: number) {
         if (this.connection) {
             if (accountId) {
