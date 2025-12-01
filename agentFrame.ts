@@ -11,11 +11,19 @@ export type AgentContext = {
     userTier: string;
     userName: string;
     activeThreadId: string | null;
+    instrumentDetails?: {
+        symbol: string;
+        name: string;
+        tickSize: number;
+        pointValue: number;
+        ivRange: { low: number; high: number };
+    };
 };
 
 export type AgentSettings = {
     customInstructions: string;
     drillSergeantMode: boolean;
+    geminiApiKey?: string;
 };
 
 // --- Constants ---
@@ -53,6 +61,11 @@ const buildContextString = (context: AgentContext, intent: string): string => {
     let contextStr = `\n[CURRENT SYSTEM STATE]\n`;
     contextStr += `User: ${context.userName} | Tier: ${context.userTier}\n`;
     contextStr += `Emotional Resonance: ${context.erScore.toFixed(1)} (${context.erState}) | Tilt Count: ${context.tiltCount}\n`;
+
+    if (context.instrumentDetails) {
+        contextStr += `Active Instrument: ${context.instrumentDetails.symbol} (${context.instrumentDetails.name})\n`;
+        contextStr += `Contract Specs: Tick=${context.instrumentDetails.tickSize}, Point=$${context.instrumentDetails.pointValue}\n`;
+    }
 
     if (intent === 'market' || intent === 'news' || intent === 'general' || intent === 'system') {
         const recentFeed = context.feedItems.slice(0, 10).map(f => `[${f.time}] ${f.text} (IV: ${f.iv?.value.toFixed(1)})`).join('\n');
@@ -130,6 +143,18 @@ export const generateAgentResponse = async (
     // 4. Construct Prompt
     let finalSystemInstruction = BASE_SYSTEM_INSTRUCTION + systemContext;
 
+    // Inject Instrument Firmware
+    if (context.instrumentDetails) {
+        finalSystemInstruction += `\n[FIRMWARE: INSTRUMENT PROTOCOLS]
+        ACTIVE SYMBOL: ${context.instrumentDetails.symbol}
+        RULES:
+        1. All analysis must be framed for ${context.instrumentDetails.name}.
+        2. Volatility expectations: Low=${context.instrumentDetails.ivRange.low}, High=${context.instrumentDetails.ivRange.high}.
+        3. If IV > ${context.instrumentDetails.ivRange.high}, warn user of "High Volatility Regime".
+        4. If IV < ${context.instrumentDetails.ivRange.low}, warn user of "Chop / Low Volatility".
+        `;
+    }
+
     if (settings.customInstructions) {
         finalSystemInstruction += `\n[USER OVERRIDE]: ${settings.customInstructions}`;
     }
@@ -148,8 +173,14 @@ export const generateAgentResponse = async (
     }
 
     try {
-        // Use provided API key from window object (consistent with index.tsx)
-        const apiKey = (window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY;
+        // Use provided API key from settings first, then fallback to env/window
+        const apiKey = settings.geminiApiKey || (window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY;
+
+        if (!apiKey) {
+            console.error("[Gemini] No API Key found.");
+            return "Uplink failure. API Key missing. Check your settings, chap.";
+        }
+
         const genAI = new GoogleGenAI(apiKey);
 
         console.log('[Gemini] Generating response...');

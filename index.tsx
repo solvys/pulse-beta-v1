@@ -62,6 +62,13 @@ const MARKET_TERMS = [
     "tape-reading", "liquidity-tracing", "impulse-filtering", "range-profiling", "phase-analysis"
 ];
 
+const INSTRUMENT_RULES: Record<string, { name: string; tickSize: number; pointValue: number; ivRange: { low: number; high: number } }> = {
+    'ES': { name: 'E-Mini S&P 500', tickSize: 0.25, pointValue: 50, ivRange: { low: 10, high: 30 } },
+    'NQ': { name: 'E-Mini NASDAQ 100', tickSize: 0.25, pointValue: 20, ivRange: { low: 15, high: 40 } },
+    'CL': { name: 'Crude Oil', tickSize: 0.01, pointValue: 1000, ivRange: { low: 20, high: 50 } },
+    'GC': { name: 'Gold', tickSize: 0.1, pointValue: 100, ivRange: { low: 10, high: 25 } }
+};
+
 // Fallback Mock Data for Feed
 const MOCK_WIRE_DATA = [
     { text: "ES Futures holding 5050 support, buyers stepping in.", source: "ZeroHedge" },
@@ -126,6 +133,10 @@ type AppSettings = {
     selectedAccount: string;
     maxTradesPerInterval: number;
     tradeIntervalMinutes: number;
+    // Instrument & Risk Settings
+    selectedInstrument: string;
+    contractSize: number;
+    geminiApiKey: string;
 };
 
 type OnboardingData = {
@@ -349,7 +360,10 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
             dailyLossLimit: 2000,
             selectedAccount: '',
             maxTradesPerInterval: 5,
-            tradeIntervalMinutes: 15
+            tradeIntervalMinutes: 15,
+            selectedInstrument: 'ES',
+            contractSize: 1,
+            geminiApiKey: ''
         };
         const loaded = saved ? JSON.parse(saved) : {};
         return {
@@ -1978,7 +1992,7 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
 // Settings Modal
 const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: () => void; onSave?: () => void }) => {
     const { settings, updateSettings } = useSettings();
-    const [activeTab, setActiveTab] = useState<'interface' | 'alerts' | 'uplinks' | 'models' | 'dev'>('interface');
+    const [activeTab, setActiveTab] = useState<'psych' | 'trading' | 'api' | 'dev'>('psych');
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
     const handleSave = () => {
@@ -1994,11 +2008,10 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
     };
 
     const tabs = [
-        { id: 'interface' as const, label: 'Interface', icon: LayoutDashboard },
-        { id: 'alerts' as const, label: 'Alerts & Audio', icon: Volume2 },
-        { id: 'uplinks' as const, label: 'External Uplinks', icon: LinkIcon },
-        { id: 'models' as const, label: 'Algo Models', icon: Brain },
-        { id: 'dev' as const, label: 'Developer Mode', icon: Terminal }
+        { id: 'psych' as const, label: 'PsychAssist', icon: Activity },
+        { id: 'trading' as const, label: 'Trading', icon: BarChart3 },
+        { id: 'api' as const, label: 'API', icon: LinkIcon },
+        { id: 'dev' as const, label: 'Developer', icon: Terminal }
     ];
 
     return (
@@ -2036,11 +2049,11 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
                 {/* Right Content Area */}
                 <div className="flex-1 flex flex-col">
                     <div className="flex-1 overflow-y-auto p-6">
-                        {/* Interface Tab */}
-                        {activeTab === 'interface' && (
+                        {/* PsychAssist Tab (Interface + Alerts) */}
+                        {activeTab === 'psych' && (
                             <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
                                 <div>
-                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">Interface Settings</h3>
+                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">PsychAssist Configuration</h3>
 
                                     <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10 mb-4">
                                         <span className="text-sm text-[#FFC038]">Anti-Anxiety Mode</span>
@@ -2050,25 +2063,7 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
                                         />
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="flex flex-col gap-2">
-                                            <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Daily Profit Target ($)</label>
-                                            <input
-                                                type="number"
-                                                value={settings.dailyProfitTarget}
-                                                onChange={(e) => updateSettings({ dailyProfitTarget: Number(e.target.value) })}
-                                                className="bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
-                                            />
-                                        </div>
-                                        <div className="flex flex-col gap-2">
-                                            <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Daily Loss Limit ($)</label>
-                                            <input
-                                                type="number"
-                                                value={settings.dailyLossLimit}
-                                                onChange={(e) => updateSettings({ dailyLossLimit: Number(e.target.value) })}
-                                                className="bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
-                                            />
-                                        </div>
+                                    <div className="grid grid-cols-2 gap-4 mb-6">
                                         <div className="flex flex-col gap-2">
                                             <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Max Trades / Interval</label>
                                             <input
@@ -2096,15 +2091,8 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            </div>
-                        )}
 
-                        {/* Alerts & Audio Tab */}
-                        {activeTab === 'alerts' && (
-                            <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
-                                <div>
-                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">Alerts & Audio Settings</h3>
+                                    <h4 className="text-sm font-bold text-[#FFC038]/70 uppercase mb-3 border-t border-[#FFC038]/20 pt-4">Audio & Alerts</h4>
 
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                                         <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
@@ -2172,13 +2160,113 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
                             </div>
                         )}
 
-                        {/* External Uplinks Tab */}
-                        {activeTab === 'uplinks' && (
+                        {/* Trading Tab (Instrument + Risk + Models) */}
+                        {activeTab === 'trading' && (
                             <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
                                 <div>
-                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">External Uplinks</h3>
+                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">Trading Configuration</h3>
+
+                                    {/* Instrument Chooser */}
+                                    <div className="mb-6">
+                                        <label className="text-xs text-[#FFC038]/70 uppercase font-bold block mb-2">Active Instrument</label>
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                            {Object.entries(INSTRUMENT_RULES).map(([symbol, details]) => (
+                                                <button
+                                                    key={symbol}
+                                                    onClick={() => updateSettings({ selectedInstrument: symbol })}
+                                                    className={cn(
+                                                        "p-3 rounded border text-left transition-all",
+                                                        settings.selectedInstrument === symbol
+                                                            ? "bg-[#FFC038] text-black border-[#FFC038]"
+                                                            : "bg-[#140a00] text-[#FFC038]/60 border-[#FFC038]/20 hover:border-[#FFC038]/50"
+                                                    )}
+                                                >
+                                                    <div className="font-bold text-sm">{symbol}</div>
+                                                    <div className="text-[9px] opacity-70 truncate">{details.name}</div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Risk Settings */}
+                                    <div className="mb-6 p-4 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                        <h4 className="text-sm font-bold text-[#FFC038] uppercase mb-3 flex items-center gap-2">
+                                            <Shield className="w-4 h-4" /> Risk Parameters
+                                        </h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div className="flex flex-col gap-2">
+                                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Contract Size</label>
+                                                <input
+                                                    type="number"
+                                                    value={settings.contractSize}
+                                                    onChange={(e) => updateSettings({ contractSize: Number(e.target.value) })}
+                                                    className="bg-black border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
+                                                />
+                                            </div>
+                                            <div className="flex flex-col gap-2">
+                                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Daily Profit Target ($)</label>
+                                                <input
+                                                    type="number"
+                                                    value={settings.dailyProfitTarget}
+                                                    onChange={(e) => updateSettings({ dailyProfitTarget: Number(e.target.value) })}
+                                                    className="bg-black border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
+                                                />
+                                            </div>
+                                            <div className="flex flex-col gap-2">
+                                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Daily Loss Limit ($)</label>
+                                                <input
+                                                    type="number"
+                                                    value={settings.dailyLossLimit}
+                                                    onChange={(e) => updateSettings({ dailyLossLimit: Number(e.target.value) })}
+                                                    className="bg-black border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Trading Models */}
+                                    <div>
+                                        <h4 className="text-sm font-bold text-[#FFC038] uppercase mb-3 flex items-center gap-2">
+                                            <Brain className="w-4 h-4" /> Trading Models
+                                        </h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            {Object.entries(settings.tradingModels).map(([key, val]) => (
+                                                <div key={key} className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                                    <span className="text-xs text-[#FFC038] capitalize">{key.replace(/([A-Z])/g, ' $1').replace('Twenty Two', '22')}</span>
+                                                    <Toggle
+                                                        checked={val as boolean}
+                                                        onChange={() => updateSettings({
+                                                            tradingModels: { ...settings.tradingModels, [key]: !val }
+                                                        })}
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* API Tab */}
+                        {activeTab === 'api' && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
+                                <div>
+                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">API Configuration</h3>
 
                                     <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Gemini API Key (AI Agent)</label>
+                                            <input
+                                                type="password"
+                                                value={settings.geminiApiKey}
+                                                onChange={e => updateSettings({ geminiApiKey: e.target.value })}
+                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                                placeholder="Enter Google Gemini API Key"
+                                            />
+                                        </div>
+
+                                        <div className="border-t border-[#FFC038]/10 my-4"></div>
+
                                         <div>
                                             <label className="block text-[10px] text-[#FFC038]/70 mb-1">X / Twitter API Key</label>
                                             <input
@@ -2197,6 +2285,9 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
                                                 className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
                                             />
                                         </div>
+
+                                        <div className="border-t border-[#FFC038]/10 my-4"></div>
+
                                         <div>
                                             <label className="block text-[10px] text-[#FFC038]/70 mb-1">TopstepX Username</label>
                                             <input
@@ -2216,7 +2307,7 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
                                             />
                                         </div>
 
-                                        <div className="flex justify-end pt-2">
+                                        <div className="flex justify-end pt-4">
                                             <Button
                                                 onClick={handleSave}
                                                 variant="primary"
@@ -2231,29 +2322,6 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
                                                 )}
                                             </Button>
                                         </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Algo Models Tab */}
-                        {activeTab === 'models' && (
-                            <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
-                                <div>
-                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">Algo Models</h3>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        {Object.entries(settings.tradingModels).map(([key, val]) => (
-                                            <div key={key} className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                                <span className="text-xs text-[#FFC038] capitalize">{key.replace(/([A-Z])/g, ' $1').replace('Twenty Two', '22')}</span>
-                                                <Toggle
-                                                    checked={val as boolean}
-                                                    onChange={() => updateSettings({
-                                                        tradingModels: { ...settings.tradingModels, [key]: !val }
-                                                    })}
-                                                />
-                                            </div>
-                                        ))}
                                     </div>
                                 </div>
                             </div>
@@ -2625,25 +2693,31 @@ const AppContent = () => {
 
     // Calculate IV helper using Gemini API for realistic analysis
     const calculateIV = async (text: string): Promise<IVData> => {
+        const instrument = INSTRUMENT_RULES[settings.selectedInstrument] || INSTRUMENT_RULES['ES'];
         try {
             // Use Gemini to analyze the headline for market impact
-            const prompt = `Analyze this market news headline for NQ futures (E-mini NASDAQ-100) day trading:
+            const prompt = `Analyze this market news headline for ${instrument.name} (${settings.selectedInstrument}) day trading:
 
 "${text}"
 
 Provide a realistic implied volatility estimate in points for a scalping timeframe (minutes to hours).
 Use economic reasoning (e.g., earnings, Fed speakers, geopolitical events) to determine impact.
+Current Instrument Rules: Tick Size: ${instrument.tickSize}, Point Value: $${instrument.pointValue}.
+Typical IV Range: ${instrument.ivRange.low}-${instrument.ivRange.high} points.
 
 Ranges:
-- Minor news (earnings, small updates): 5-15 points
-- Medium news (economic data, Fed speakers): 15-40 points  
-- Major news (FOMC, CPI, NFP, major geopolitical): 40-100 points
-- Extreme events (crashes, unprecedented): 100-200+ points
+- Minor news: ${instrument.ivRange.low}-${instrument.ivRange.high} points
+- Medium news: ${instrument.ivRange.high}-${instrument.ivRange.high * 2} points
+- Major news: ${instrument.ivRange.high * 2}+ points
 
 Respond in JSON format ONLY:
 {"points": <number>, "direction": "bullish" or "bearish", "reasoning": "<brief explanation>"}`;
 
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${(window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY}`, {
+            const apiKey = settings.geminiApiKey || (window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY;
+
+            if (!apiKey) throw new Error("No Gemini API Key");
+
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -2782,7 +2856,7 @@ Respond in JSON format ONLY:
             console.error("[Feed] Uplink Failed:", e);
             // Do NOT fallback to mock data in real mode
         }
-    }, [settings.xBearerToken, settings.mockDataEnabled, following, processItems]);
+    }, [settings.xBearerToken, settings.mockDataEnabled, following, processItems, settings.selectedInstrument, settings.geminiApiKey]);
 
     useEffect(() => {
         fetchFeed(); // Initial fetch
@@ -2935,6 +3009,7 @@ Respond in JSON format ONLY:
                                 erScore={psychState.score}
                                 erState={psychState.state}
                                 tiltCount={psychState.tiltCount}
+                                settings={settings}
                             />
                         )}
 
