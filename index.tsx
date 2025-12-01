@@ -303,7 +303,7 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
         const defaults: AppSettings = {
             showUpgradeCTAText: true,
             xApiKey: '',
-            xBearerToken: '',
+            xBearerToken: 'AAAAAAAAAAAAAAAAAAAAAB/L5gEAAAAAjeqUBtpMWRv3yVSiD8vc1HPvg1U=Rt4RbYZS5CPTE9lAYlo9wxs7m67teTzJh6I2I1HeNikHckBmXf',
             topstepXApiKey: '',
             customInstructions: '',
             drillSergeantMode: false,
