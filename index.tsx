@@ -807,6 +807,11 @@ const EmotionalResonanceMonitor = ({
 
         setScore(prev => Math.max(-9.9, prev - amount));
         console.log(`Penalty: -${amount} (${reason})`);
+
+        // Play bass sound on every tilt violation
+        if (settings.alerts.enabled) {
+            playTiltBass(settings.alerts.toneType);
+        }
     };
 
     const analyzeText = (text: string) => {
@@ -2609,32 +2614,27 @@ const AppContent = () => {
         tiltCount: 0
     });
 
-    // Calculate IV helper
-    // Calculate IV helper (Calibrated for NQ Futures)
+    // Calculate IV helper - Realistic NQ Futures Point Ranges
     const calculateIV = (text: string): IVData => {
-        // Hash the text to get a deterministic value
-        const sum = text.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-
-        // NQ Futures Volatility Calibration
-        // Base move: 20-25 pts
-        // Average reaction: 100-200 pts
-        // Range: ~20 to ~220
-        const baseVol = 20;
-        const variableVol = sum % 200;
-        const magnitude = baseVol + variableVol;
-
-        // Direction based on sentiment keywords or hash parity if neutral
-        const bullishTerms = ['high', 'up', 'gain', 'bull', 'green', 'call', 'long', 'breakout', 'surge', 'rally'];
-        const bearishTerms = ['low', 'down', 'loss', 'bear', 'red', 'put', 'short', 'breakdown', 'crash', 'drop'];
-
         const lowerText = text.toLowerCase();
+
+        // Keyword detection
+        const bullishTerms = ['beats', 'surge', 'rally', 'gain', 'positive', 'growth', 'up', 'rise'];
+        const bearishTerms = ['miss', 'crash', 'drop', 'loss', 'negative', 'decline', 'down', 'fall'];
+        const majorTerms = ['fomc', 'fed', 'cpi', 'nfp', 'inflation', 'gdp', 'rate', 'powell'];
+
         const isBullish = bullishTerms.some(t => lowerText.includes(t));
         const isBearish = bearishTerms.some(t => lowerText.includes(t));
+        const isMajor = majorTerms.some(t => lowerText.includes(t));
 
-        let value = magnitude;
-        if (isBearish && !isBullish) value = -magnitude;
-        else if (!isBearish && isBullish) value = magnitude;
-        else value = (sum % 2 === 0 ? 1 : -1) * magnitude; // Random direction if neutral
+        // Realistic NQ point ranges:
+        // Normal news: 10-30 points
+        // Major news: 30-70 points
+        const magnitude = isMajor
+            ? Math.floor(30 + Math.random() * 40)  // 30-70 points
+            : Math.floor(10 + Math.random() * 20);  // 10-30 points
+
+        let value = isBearish ? -magnitude : isBullish ? magnitude : (Math.random() > 0.5 ? 1 : -1) * magnitude;
 
         const type = value >= 0 ? 'cyclical' : 'countercyclical';
         return { type, value };
