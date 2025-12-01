@@ -392,14 +392,19 @@ const GeminiIcon = ({ className }: { className?: string }) => (
 const IVIndicator = ({ change }: { change: number }) => {
     const isBullish = change >= 0;
     const color = isBullish ? "text-emerald-500" : "text-red-500";
+    const showValue = Math.abs(change) >= 30;
 
     return (
         <div className="flex items-center gap-1.5 font-mono text-xs bg-[#140a00] px-2 py-1 rounded border border-[#FFC038]/20 shadow-[0_0_5px_rgba(0,0,0,0.5)]">
             <span className="text-[#FFC038] font-bold tracking-wider">IV:</span>
-            <span className={cn("font-bold flex items-center gap-1", color)}>
-                {isBullish ? '▲' : '▼'}
-                <span>{change > 0 ? '+' : ''}{change.toFixed(1)} pts</span>
-            </span>
+            {showValue ? (
+                <span className={cn("font-bold flex items-center gap-1", color)}>
+                    {isBullish ? '▲' : '▼'}
+                    <span>{change > 0 ? '+' : ''}{change.toFixed(1)} pts</span>
+                </span>
+            ) : (
+                <span className="text-[#FFC038]/50 font-bold">-</span>
+            )}
         </div>
     );
 };
@@ -1034,9 +1039,13 @@ const FeedSection: React.FC<{ title: string; items: FeedItem[]; onClear?: () => 
                         <div className="mt-1.5 flex items-center gap-2 text-[9px] font-mono tracking-wide border-t border-[#FFC038]/10 pt-1">
                             <span className="text-[#FFC038] font-bold">IV:</span>
                             <span className="text-[#FFC038] opacity-70">{item.iv.type}</span>
-                            <span className={cn("font-bold", item.iv.value >= 0 ? "text-emerald-500" : "text-red-500")}>
-                                [{item.iv.value >= 0 ? '▲' : '▼'} {item.iv.value > 0 ? '+' : ''}{item.iv.value.toFixed(1)}pts]
-                            </span>
+                            {Math.abs(item.iv.value) >= 30 ? (
+                                <span className={cn("font-bold", item.iv.value >= 0 ? "text-emerald-500" : "text-red-500")}>
+                                    [{item.iv.value >= 0 ? '▲' : '▼'} {item.iv.value > 0 ? '+' : ''}{item.iv.value.toFixed(1)}pts]
+                                </span>
+                            ) : (
+                                <span className="text-[#FFC038]/50 font-bold">[-]</span>
+                            )}
                         </div>
                     )}
                 </div>
@@ -2614,11 +2623,55 @@ const AppContent = () => {
         tiltCount: 0
     });
 
-    // Calculate IV helper - Realistic NQ Futures Point Ranges
-    const calculateIV = (text: string): IVData => {
-        const lowerText = text.toLowerCase();
+    // Calculate IV helper using Gemini API for realistic analysis
+    const calculateIV = async (text: string): Promise<IVData> => {
+        try {
+            // Use Gemini to analyze the headline for market impact
+            const prompt = `Analyze this market news headline for NQ futures (E-mini NASDAQ-100) day trading:
 
-        // Keyword detection
+"${text}"
+
+Provide a realistic implied volatility estimate in points for a scalping timeframe (minutes to hours).
+Use economic reasoning (e.g., earnings, Fed speakers, geopolitical events) to determine impact.
+
+Ranges:
+- Minor news (earnings, small updates): 5-15 points
+- Medium news (economic data, Fed speakers): 15-40 points  
+- Major news (FOMC, CPI, NFP, major geopolitical): 40-100 points
+- Extreme events (crashes, unprecedented): 100-200+ points
+
+Respond in JSON format ONLY:
+{"points": <number>, "direction": "bullish" or "bearish", "reasoning": "<brief explanation>"}`;
+
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${(window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        temperature: 0.3,
+                        maxOutputTokens: 200
+                    }
+                })
+            });
+
+            const data = await response.json();
+            const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+            // Parse JSON from AI response
+            const jsonMatch = aiResponse.match(/\{[^}]+\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                const value = parsed.direction === 'bearish' ? -Math.abs(parsed.points) : Math.abs(parsed.points);
+                const type = value >= 0 ? 'cyclical' : 'countercyclical';
+                return { type, value };
+            }
+        } catch (error) {
+            console.error('Gemini IV Analysis Error:', error);
+        }
+
+        // Fallback to simple analysis if API fails
+        const lowerText = text.toLowerCase();
         const bullishTerms = ['beats', 'surge', 'rally', 'gain', 'positive', 'growth', 'up', 'rise'];
         const bearishTerms = ['miss', 'crash', 'drop', 'loss', 'negative', 'decline', 'down', 'fall'];
         const majorTerms = ['fomc', 'fed', 'cpi', 'nfp', 'inflation', 'gdp', 'rate', 'powell'];
@@ -2627,18 +2680,43 @@ const AppContent = () => {
         const isBearish = bearishTerms.some(t => lowerText.includes(t));
         const isMajor = majorTerms.some(t => lowerText.includes(t));
 
-        // Realistic NQ point ranges:
-        // Normal news: 10-30 points
-        // Major news: 30-70 points
         const magnitude = isMajor
-            ? Math.floor(30 + Math.random() * 40)  // 30-70 points
-            : Math.floor(10 + Math.random() * 20);  // 10-30 points
+            ? Math.floor(30 + Math.random() * 40)
+            : Math.floor(10 + Math.random() * 20);
 
         let value = isBearish ? -magnitude : isBullish ? magnitude : (Math.random() > 0.5 ? 1 : -1) * magnitude;
 
         const type = value >= 0 ? 'cyclical' : 'countercyclical';
         return { type, value };
     };
+
+    const processItems = useCallback(async (rawItems: any[]) => {
+        const newItems: FeedItem[] = await Promise.all(rawItems.map(async (t: any) => {
+            const iv = await calculateIV(t.text);
+            return {
+                id: Number(t.id),
+                time: new Date(t.created_at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' }) + " EST",
+                text: t.text,
+                type: 'info',
+                source: 'X', // Default source
+                iv: iv
+            };
+        }));
+
+        // Update System Feed
+        setFeedItems(prev => {
+            const existingIds = new Set(prev.map(i => i.id));
+            const filtered = newItems.filter(i => !existingIds.has(i.id));
+            return [...filtered, ...prev].slice(0, 50);
+        });
+
+        // Update News Feed
+        setNewsItems(prev => {
+            const existingIds = new Set(prev.map(i => i.id));
+            const filtered = newItems.filter(i => !existingIds.has(i.id));
+            return [...filtered, ...prev].slice(0, 50);
+        });
+    }, []);
 
     // Live Feed Fetcher with Fallback
     const fetchFeed = useCallback(async (limit: number = 20) => {
@@ -2655,7 +2733,7 @@ const AppContent = () => {
                 text: mockItem.text,
                 source: mockItem.source
             }];
-            processItems(newRawItems);
+            await processItems(newRawItems);
             return;
         }
 
@@ -2698,45 +2776,17 @@ const AppContent = () => {
             console.log(`[Feed] Received ${data.data?.length || 0} items`);
 
             if (data.data && Array.isArray(data.data)) {
-                processItems(data.data);
+                await processItems(data.data);
             }
         } catch (e) {
             console.error("[Feed] Uplink Failed:", e);
             // Do NOT fallback to mock data in real mode
         }
-    }, [settings.xBearerToken, settings.mockDataEnabled, following]);
-
-    const processItems = useCallback((rawItems: any[]) => {
-        const newItems: FeedItem[] = rawItems.map((t: any) => {
-            const iv = calculateIV(t.text);
-            return {
-                id: Number(t.id),
-                time: new Date(t.created_at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' }) + " EST",
-                text: t.text,
-                type: 'info',
-                source: 'X', // Default source
-                iv: iv
-            };
-        });
-
-        // Update System Feed
-        setFeedItems(prev => {
-            const existingIds = new Set(prev.map(i => i.id));
-            const filtered = newItems.filter(i => !existingIds.has(i.id));
-            return [...filtered, ...prev].slice(0, 50);
-        });
-
-        // Update News Feed
-        setNewsItems(prev => {
-            const existingIds = new Set(prev.map(i => i.id));
-            const filtered = newItems.filter(i => !existingIds.has(i.id));
-            return [...filtered, ...prev].slice(0, 50);
-        });
-    }, []);
+    }, [settings.xBearerToken, settings.mockDataEnabled, following, processItems]);
 
     useEffect(() => {
         fetchFeed(); // Initial fetch
-        const interval = setInterval(() => fetchFeed(20), 15000); // Poll every 15s
+        const interval = setInterval(() => fetchFeed(20), 60000); // Poll every 1 minute (60s)
 
         return () => clearInterval(interval);
     }, [fetchFeed]);

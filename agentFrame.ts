@@ -148,22 +148,21 @@ export const generateAgentResponse = async (
     }
 
     try {
-        // Use provided API key
-        const apiKey = process.env.API_KEY || 'AIzaSyBFBWp6_BFo74X3zmHTNOu4gbT6XrQvZGc';
-        const ai = new GoogleGenAI({ apiKey });
+        // Use provided API key from window object (consistent with index.tsx)
+        const apiKey = (window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY;
+        const genAI = new GoogleGenAI(apiKey);
 
         console.log('[Gemini] Generating response...');
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash-exp',
-            contents: finalPrompt,
-            config: {
-                systemInstruction: finalSystemInstruction,
-                temperature: 0.7, // Slightly creative for the persona
-            }
+        const model = genAI.getGenerativeModel({
+            model: "gemini-2.0-flash-exp",
+            systemInstruction: finalSystemInstruction,
         });
 
-        return response.text || "Tape is glitching. Say again?";
+        const result = await model.generateContent(finalPrompt);
+        const response = await result.response;
+
+        return response.text();
     } catch (error) {
         console.error("[Gemini] Agent Uplink Error:", error);
         return "Signal lost. Check your connection, old sport.";
