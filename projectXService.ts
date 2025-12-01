@@ -17,6 +17,17 @@ export interface ProjectXAccount {
     simulated: boolean;
 }
 
+export interface ProjectXPosition {
+    accountId: number;
+    contractId: number;
+    symbol: string;
+    side: 'Long' | 'Short';
+    quantity: number;
+    averagePrice: number;
+    currentPrice: number;
+    profitAndLoss: number;
+}
+
 export interface ProjectXAccountSearchResponse {
     accounts: ProjectXAccount[];
     success: boolean;
@@ -115,7 +126,8 @@ export class ProjectXService {
         token: string,
         accountId: number,
         onAccountUpdate: (data: any) => void,
-        onTradeUpdate: (data: any) => void
+        onTradeUpdate: (data: any) => void,
+        onPositionUpdate: (data: any) => void
     ): Promise<void> {
         if (this.connection) {
             await this.connection.stop();
@@ -142,6 +154,13 @@ export class ProjectXService {
             console.log('GatewayUserTrade', data);
             if (data.accountId === accountId) {
                 onTradeUpdate(data);
+            }
+        });
+
+        this.connection.on('GatewayUserPosition', (data) => {
+            console.log('GatewayUserPosition', data);
+            if (data.accountId === accountId) {
+                onPositionUpdate(data);
             }
         });
 

@@ -14,7 +14,7 @@ import {
 import { GoogleGenAI, Modality, LiveServerMessage, Chat, GenerateContentResponse } from "@google/genai";
 import { triggerEmotionalAlert, EmotionalState, playTone, playTiltBass, playTransitionWarning } from './emotionalAlerts';
 import { generateAgentResponse, AgentContext } from './agentFrame';
-import { ProjectXService, ProjectXAccount } from './projectXService';
+import { ProjectXService, ProjectXAccount, ProjectXPosition } from './projectXService';
 
 // --- Constants ---
 const GOLD = "#FFC038";
@@ -62,11 +62,11 @@ const MARKET_TERMS = [
     "tape-reading", "liquidity-tracing", "impulse-filtering", "range-profiling", "phase-analysis"
 ];
 
-const INSTRUMENT_RULES: Record<string, { name: string; tickSize: number; pointValue: number; ivRange: { low: number; high: number } }> = {
-    'ES': { name: 'E-Mini S&P 500', tickSize: 0.25, pointValue: 50, ivRange: { low: 10, high: 30 } },
-    'NQ': { name: 'E-Mini NASDAQ 100', tickSize: 0.25, pointValue: 20, ivRange: { low: 15, high: 40 } },
-    'CL': { name: 'Crude Oil', tickSize: 0.01, pointValue: 1000, ivRange: { low: 20, high: 50 } },
-    'GC': { name: 'Gold', tickSize: 0.1, pointValue: 100, ivRange: { low: 10, high: 25 } }
+const INSTRUMENT_RULES: Record<string, { name: string; contract: string; tickSize: number; pointValue: number; ivRange: { low: number; high: number } }> = {
+    '/MNQ': { name: 'Micro E-mini NASDAQ 100', contract: 'Dec 25', tickSize: 0.25, pointValue: 2, ivRange: { low: 15, high: 40 } },
+    '/MES': { name: 'Micro E-mini S&P 500', contract: 'Dec 25', tickSize: 0.25, pointValue: 5, ivRange: { low: 10, high: 30 } },
+    '/MGC': { name: 'Micro Gold', contract: 'Feb 26', tickSize: 0.1, pointValue: 10, ivRange: { low: 10, high: 25 } },
+    '/SIL': { name: 'Micro Silver', contract: 'Mar 26', tickSize: 0.005, pointValue: 50, ivRange: { low: 15, high: 35 } }
 };
 
 // Fallback Mock Data for Feed
@@ -361,9 +361,9 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
             selectedAccount: '',
             maxTradesPerInterval: 5,
             tradeIntervalMinutes: 15,
-            selectedInstrument: 'ES',
+            selectedInstrument: '/MES',
             contractSize: 1,
-            geminiApiKey: ''
+            geminiApiKey: 'AIzaSyBFBWp6_BFo74X3zmHTNOu4gbT6XrQvZGc'
         };
         const loaded = saved ? JSON.parse(saved) : {};
         return {
@@ -521,6 +521,169 @@ const Modal = ({ isOpen, onClose, children, className, hideClose = false }: { is
     );
 };
 
+// 4.5 Knowledge Base Modal
+const KnowledgeBaseModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
+    const [password, setPassword] = useState("");
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [error, setError] = useState(false);
+
+    const handleLogin = () => {
+        if (password === "PIResearch25$") {
+            setIsAuthenticated(true);
+            setError(false);
+        } else {
+            setError(true);
+            playTone(150, 'sawtooth', 0.3, 0.1); // Error tone
+        }
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} className="w-full max-w-4xl h-[80vh] flex flex-col">
+            {!isAuthenticated ? (
+                <div className="flex flex-col items-center justify-center h-full p-8">
+                    <Lock className="w-12 h-12 text-[#FFC038] mb-4" />
+                    <h2 className="text-xl font-bold text-[#FFC038] mb-2 font-['Roboto'] tracking-wider">RESTRICTED ACCESS</h2>
+                    <p className="text-[#FFC038]/60 mb-6 text-sm font-mono">Enter security clearance code to access the Trading Playbook.</p>
+
+                    <div className="flex gap-2 w-full max-w-xs">
+                        <input
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                            placeholder="Enter Password"
+                            className="flex-1 bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] focus:border-[#FFC038] outline-none font-mono text-sm"
+                        />
+                        <Button onClick={handleLogin} variant="primary">ACCESS</Button>
+                    </div>
+                    {error && <p className="text-red-500 text-xs mt-3 font-mono animate-pulse">ACCESS DENIED: INVALID CREDENTIALS</p>}
+                </div>
+            ) : (
+                <div className="flex flex-col h-full">
+                    <div className="p-6 border-b border-[#FFC038]/20 flex items-center gap-3">
+                        <Notebook className="w-6 h-6 text-[#FFC038]" />
+                        <div>
+                            <h2 className="text-xl font-bold text-[#FFC038] font-['Roboto'] tracking-wider">TRADING PLAYBOOK</h2>
+                            <p className="text-[#FFC038]/50 text-xs font-mono">ALGO CRITERIA & MODEL DEFINITIONS</p>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-6 space-y-8">
+                        {/* 40/40 Club */}
+                        <section>
+                            <h3 className="text-lg font-bold text-[#FFC038] mb-3 flex items-center gap-2">
+                                <Target className="w-5 h-5" /> 40/40 Club
+                            </h3>
+                            <div className="bg-[#140a00] border border-[#FFC038]/20 rounded-lg p-4">
+                                <p className="text-[#FFC038]/80 text-sm mb-4">A high-probability trend continuation model looking for sustained momentum.</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono text-[#FFC038]/70">
+                                    <ul className="list-disc pl-4 space-y-1">
+                                        <li><strong className="text-[#FFC038]">Trend:</strong> Strong directional bias on 15m/1h.</li>
+                                        <li><strong className="text-[#FFC038]">Volume:</strong> Above average relative volume (RVOL > 1.2).</li>
+                                        <li><strong className="text-[#FFC038]">Structure:</strong> Clean flag or consolidation break.</li>
+                                    </ul>
+                                    <ul className="list-disc pl-4 space-y-1">
+                                        <li><strong className="text-[#FFC038]">Entry:</strong> Break of consolidation high/low.</li>
+                                        <li><strong className="text-[#FFC038]">Stop:</strong> Below consolidation low / Above high.</li>
+                                        <li><strong className="text-[#FFC038]">Target:</strong> 1:2 Risk/Reward minimum.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* Charged Up Rippers */}
+                        <section>
+                            <h3 className="text-lg font-bold text-[#FFC038] mb-3 flex items-center gap-2">
+                                <Zap className="w-5 h-5" /> Charged Up Rippers
+                            </h3>
+                            <div className="bg-[#140a00] border border-[#FFC038]/20 rounded-lg p-4">
+                                <p className="text-[#FFC038]/80 text-sm mb-4">Momentum scalping model based on rapid order flow imbalances.</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono text-[#FFC038]/70">
+                                    <ul className="list-disc pl-4 space-y-1">
+                                        <li><strong className="text-[#FFC038]">Context:</strong> High volatility environment (IV > 20).</li>
+                                        <li><strong className="text-[#FFC038]">Trigger:</strong> Aggressive market buying/selling absorption.</li>
+                                        <li><strong className="text-[#FFC038]">Tape:</strong> Speed of tape acceleration.</li>
+                                    </ul>
+                                    <ul className="list-disc pl-4 space-y-1">
+                                        <li><strong className="text-[#FFC038]">Execution:</strong> Market order on momentum confirmation.</li>
+                                        <li><strong className="text-[#FFC038]">Management:</strong> Quick profit taking (scalp).</li>
+                                        <li><strong className="text-[#FFC038]">Risk:</strong> Tight stop (5-8 ticks).</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* Morning Flush */}
+                        <section>
+                            <h3 className="text-lg font-bold text-[#FFC038] mb-3 flex items-center gap-2">
+                                <ArrowRight className="w-5 h-5 rotate-45" /> Morning Flush
+                            </h3>
+                            <div className="bg-[#140a00] border border-[#FFC038]/20 rounded-lg p-4">
+                                <p className="text-[#FFC038]/80 text-sm mb-4">Reversal model targeting the opening range liquidity sweep.</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono text-[#FFC038]/70">
+                                    <ul className="list-disc pl-4 space-y-1">
+                                        <li><strong className="text-[#FFC038]">Time:</strong> 9:30 AM - 10:00 AM EST.</li>
+                                        <li><strong className="text-[#FFC038]">Setup:</strong> Price pushes aggressively into key support/resistance.</li>
+                                        <li><strong className="text-[#FFC038]">Signal:</strong> Rejection wick + volume spike.</li>
+                                    </ul>
+                                    <ul className="list-disc pl-4 space-y-1">
+                                        <li><strong className="text-[#FFC038]">Entry:</strong> Retest of the rejection level.</li>
+                                        <li><strong className="text-[#FFC038]">Target:</strong> Opening print or opposing liquidity.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* Lunch Power Hour Flush */}
+                        <section>
+                            <h3 className="text-lg font-bold text-[#FFC038] mb-3 flex items-center gap-2">
+                                <Clock className="w-5 h-5" /> Lunch Power Hour Flush
+                            </h3>
+                            <div className="bg-[#140a00] border border-[#FFC038]/20 rounded-lg p-4">
+                                <p className="text-[#FFC038]/80 text-sm mb-4">Mid-day reversal catching the "lunch money" liquidity grab.</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono text-[#FFC038]/70">
+                                    <ul className="list-disc pl-4 space-y-1">
+                                        <li><strong className="text-[#FFC038]">Time:</strong> 12:00 PM - 1:30 PM EST.</li>
+                                        <li><strong className="text-[#FFC038]">Context:</strong> Low volume drift into a level.</li>
+                                        <li><strong className="text-[#FFC038]">Trap:</strong> False breakout/breakdown.</li>
+                                    </ul>
+                                    <ul className="list-disc pl-4 space-y-1">
+                                        <li><strong className="text-[#FFC038]">Confirmation:</strong> Reclaim of the broken level.</li>
+                                        <li><strong className="text-[#FFC038]">Target:</strong> Range mean reversion.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* 22 VIX Fix */}
+                        <section>
+                            <h3 className="text-lg font-bold text-[#FFC038] mb-3 flex items-center gap-2">
+                                <Activity className="w-5 h-5" /> 22 VIX Fix
+                            </h3>
+                            <div className="bg-[#140a00] border border-[#FFC038]/20 rounded-lg p-4">
+                                <p className="text-[#FFC038]/80 text-sm mb-4">Volatility mean reversion model based on VIX extremes.</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono text-[#FFC038]/70">
+                                    <ul className="list-disc pl-4 space-y-1">
+                                        <li><strong className="text-[#FFC038]">Indicator:</strong> VIX > 22 or VIX Bollinger Band tag.</li>
+                                        <li><strong className="text-[#FFC038]">Concept:</strong> Fear is overextended.</li>
+                                        <li><strong className="text-[#FFC038]">Market:</strong> ES/NQ bottoms while VIX tops.</li>
+                                    </ul>
+                                    <ul className="list-disc pl-4 space-y-1">
+                                        <li><strong className="text-[#FFC038]">Entry:</strong> Divergence between Price Low and VIX High.</li>
+                                        <li><strong className="text-[#FFC038]">Style:</strong> Swing or long-duration day trade.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            )}
+        </Modal>
+    );
+};
+
 // 5. Button
 const Button = ({
     children, onClick, variant = "primary", className = "", disabled = false
@@ -634,11 +797,13 @@ const WaveformCanvas = ({ stream, erScore }: { stream: MediaStream | null, erSco
 const EmotionalResonanceMonitor = ({
     active,
     sessionTime,
-    onStateUpdate
+    onStateUpdate,
+    onTilt
 }: {
     active: boolean,
     sessionTime?: string,
-    onStateUpdate: (score: number, state: EmotionalState, tiltCount: number) => void
+    onStateUpdate: (score: number, state: EmotionalState, tiltCount: number) => void,
+    onTilt?: (tiltCount: number) => void
 }) => {
     const { settings } = useSettings();
     const [score, setScore] = useState(5.0); // Start at +5.0 (Stable)
@@ -680,6 +845,9 @@ const EmotionalResonanceMonitor = ({
             if (state === 'tilt') {
                 tiltCountRef.current += 1;
                 setTiltCount(tiltCountRef.current);
+
+                // Notify parent for AI Agent
+                if (onTilt) onTilt(tiltCountRef.current);
 
                 // Play transition warning if coming from stable (skipping neutral)
                 if (lastStateRef.current === 'stable' && settings.alerts.enabled) {
@@ -1070,8 +1238,9 @@ const FeedSection: React.FC<{ title: string; items: FeedItem[]; onClear?: () => 
 );
 
 // News Feed Component
-const NewsFeed = ({ items, following, onToggleFollow, onClear }: { items: FeedItem[], following: string[], onToggleFollow: (s: string) => void, onClear: () => void }) => {
+const NewsFeed = ({ items, following, onToggleFollow, onClear, onRefresh }: { items: FeedItem[], following: string[], onToggleFollow: (s: string) => void, onClear: () => void, onRefresh?: () => void }) => {
     const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
 
     useEffect(() => {
         if ("Notification" in window) {
@@ -1088,6 +1257,13 @@ const NewsFeed = ({ items, following, onToggleFollow, onClear }: { items: FeedIt
         setNotificationsEnabled(permission === 'granted');
     };
 
+    const handleRefresh = async () => {
+        if (!onRefresh) return;
+        setRefreshing(true);
+        await onRefresh();
+        setTimeout(() => setRefreshing(false), 500); // Keep button spinning for at least 500ms
+    };
+
     const MOCK_SOURCES = ["Walter Bloomberg", "ZeroHedge", "FinancialJuice", "DeltaOne", "InsiderPaper"];
 
     return (
@@ -1097,8 +1273,18 @@ const NewsFeed = ({ items, following, onToggleFollow, onClear }: { items: FeedIt
                     <Newspaper className="w-4 h-4 text-[#FFC038]" />
                     <span className="text-xs font-bold text-[#FFC038] uppercase font-['Roboto'] tracking-widest">Following Feed</span>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
                     <IVIndicator change={1.4} />
+                    {onRefresh && (
+                        <button
+                            onClick={handleRefresh}
+                            disabled={refreshing}
+                            className="p-1.5 rounded transition-all text-[#FFC038]/50 hover:text-[#FFC038] disabled:opacity-50"
+                            title="Refresh feed"
+                        >
+                            <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
+                        </button>
+                    )}
                     <button
                         onClick={requestNotifications}
                         className={cn("p-1.5 rounded transition-all", notificationsEnabled ? "text-emerald-500 bg-emerald-500/10" : "text-[#FFC038]/50 hover:text-[#FFC038]")}
@@ -1190,11 +1376,45 @@ Session marked by strong adherence to the plan during the morning drive.Some sli
 
     return (
         <LockedCard locked={locked} mode="blur" className="h-full flex flex-col">
-            <div className="p-4 border-b border-[#FFC038]/20 flex justify-between items-center bg-[#0a0a00]">
-                <div className="flex items-center gap-2 text-[#FFC038]">
-                    <Notebook className="w-4 h-4" />
-                    <span className="text-xs font-bold uppercase font-['Roboto']">History</span>
+            {/* Sidebar Header */}
+            <div className="p-4 border-b border-[#FFC038]/20 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3 overflow-hidden">
+                    <div className="w-8 h-8 rounded bg-[#FFC038] flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(255,192,56,0.3)]">
+                        <Zap className="w-5 h-5 text-black" />
+                    </div>
+                    {/* Assuming isCollapsed is defined elsewhere or needs to be added to props/state */}
+                    {/* {!isCollapsed && ( */}
+                    <div>
+                        <h1 className="font-bold text-lg text-[#FFC038] tracking-wider font-['Roboto'] truncate">PULSE</h1>
+                        <div className="text-[9px] text-[#FFC038]/50 tracking-[0.2em] uppercase truncate">Terminal v3.0</div>
+                    </div>
+                    {/* )} */}
                 </div>
+                <div className="flex items-center gap-1">
+                    {/* Assuming setShowKnowledgeBase and setIsCollapsed are defined elsewhere or need to be added to props/state */}
+                    {/* <button
+                        onClick={() => setShowKnowledgeBase(true)}
+                        className="p-1.5 rounded hover:bg-[#FFC038]/10 text-[#FFC038]/50 hover:text-[#FFC038] transition-colors"
+                        title="Trading Playbook"
+                    >
+                        <Notebook className="w-4 h-4" />
+                    </button>
+                    <button
+                        onClick={() => setIsCollapsed(!isCollapsed)}
+                        className="p-1.5 rounded hover:bg-[#FFC038]/10 text-[#FFC038]/50 hover:text-[#FFC038] transition-colors"
+                    >
+                        {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                    </button> */}
+                </div>
+            </div>
+
+            <div className="p-4 border-b border-[#FFC038]/20 flex justify-between items-center bg-[#050500] z-30 relative h-14 shrink-0">
+                {/* {!isCollapsed && ( */}
+                <div className="flex items-center gap-2 text-[#FFC038] animate-in fade-in overflow-hidden whitespace-nowrap">
+                    <Layers className="w-4 h-4 shrink-0" />
+                    <span className="text-xs font-bold uppercase font-['Roboto']">Mission Control</span>
+                </div>
+                {/* )} */}
                 <button onClick={() => createThread()} className="text-[#FFC038]/50 hover:text-[#FFC038]">
                     <Plus className="w-4 h-4" />
                 </button>
@@ -1506,7 +1726,7 @@ const TRADING_MODELS_CONFIG = [
 ];
 
 // Control Panel (Mission Control)
-const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: number, state: EmotionalState, tiltCount: number) => void }) => {
+const MissionControl = ({ onPsychStateUpdate, onTilt }: { onPsychStateUpdate: (score: number, state: EmotionalState, tiltCount: number) => void, onTilt: (tiltCount: number) => void }) => {
     const { user, updateTier } = useAuth();
     const { settings, updateSettings } = useSettings();
     const { activeThreadId, updateThread } = useThreads();
@@ -1515,6 +1735,7 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
 
     // New State for Warning Modal
     const [showStopWarning, setShowStopWarning] = useState(false);
+    const [showKnowledgeBase, setShowKnowledgeBase] = useState(false);
 
     // Session Timer State
     const [sessionSeconds, setSessionSeconds] = useState(0);
@@ -1563,6 +1784,7 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
 
     // ProjectX Integration State
     const [accounts, setAccounts] = useState<ProjectXAccount[]>([]);
+    const [positions, setPositions] = useState<ProjectXPosition[]>([]);
     const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
     const [token, setToken] = useState<string | null>(null);
 
@@ -1630,11 +1852,21 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
                             if (tradeData.profitAndLoss !== undefined && tradeData.profitAndLoss !== null) {
                                 // Add this trade's PnL to current
                                 // Note: This is a simplification. Ideally we track all trades.
-                                // But since we fetched initial PnL, adding new trade PnL should work for the session.
-                                // However, searchTrades might return the trade that just happened if we poll.
-                                // SignalR gives us the trade event.
-                                updateSettings({ currentPNL: (prev: any) => (prev.currentPNL || 0) + tradeData.profitAndLoss });
+                                updateSettings({ currentPNL: settings.currentPNL + tradeData.profitAndLoss });
                             }
+                        },
+                        (posData: ProjectXPosition) => {
+                            console.log("Position Update:", posData);
+                            setPositions(prev => {
+                                const exists = prev.find(p => p.contractId === posData.contractId);
+                                if (posData.quantity === 0) {
+                                    return prev.filter(p => p.contractId !== posData.contractId);
+                                }
+                                if (exists) {
+                                    return prev.map(p => p.contractId === posData.contractId ? posData : p);
+                                }
+                                return [...prev, posData];
+                            });
                         }
                     );
                 } catch (e) {
@@ -1661,6 +1893,7 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
             isCollapsed ? "w-14" : "w-80"
         )}>
             <StopMonitoringModal isOpen={showStopWarning} onContinue={cancelStopMonitoring} onStop={confirmStopMonitoring} />
+            <KnowledgeBaseModal isOpen={showKnowledgeBase} onClose={() => setShowKnowledgeBase(false)} />
 
             {/* PNL Ticker (Top Right Overlay) */}
             {settings.algoActive && !isCollapsed && (
@@ -1683,23 +1916,41 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
                 </div>
             )}
 
+            {/* Sidebar Header */}
+            <div className="p-4 border-b border-[#FFC038]/20 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3 overflow-hidden">
+                    <div className="w-8 h-8 rounded bg-[#FFC038] flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(255,192,56,0.3)]">
+                        <Zap className="w-5 h-5 text-black" />
+                    </div>
+                    {!isCollapsed && (
+                        <div>
+                            <h1 className="font-bold text-lg text-[#FFC038] tracking-wider font-['Roboto'] truncate">PULSE</h1>
+                            <div className="text-[9px] text-[#FFC038]/50 tracking-[0.2em] uppercase truncate">Terminal v3.0</div>
+                        </div>
+                    )}
+                </div>
+                <div className="flex items-center gap-1">
+                    <button
+                        onClick={() => setShowKnowledgeBase(true)}
+                        className="p-1.5 rounded hover:bg-[#FFC038]/10 text-[#FFC038]/50 hover:text-[#FFC038] transition-colors"
+                        title="Trading Playbook"
+                    >
+                        <Notebook className="w-4 h-4" />
+                    </button>
+                    <button
+                        onClick={() => setIsCollapsed(!isCollapsed)}
+                        className="p-1.5 rounded hover:bg-[#FFC038]/10 text-[#FFC038]/50 hover:text-[#FFC038] transition-colors"
+                    >
+                        {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                    </button>
+                </div>
+            </div>
+
             <div className="p-4 border-b border-[#FFC038]/20 flex justify-between items-center bg-[#050500] z-30 relative h-14 shrink-0">
                 {!isCollapsed && (
                     <div className="flex items-center gap-2 text-[#FFC038] animate-in fade-in overflow-hidden whitespace-nowrap">
                         <Layers className="w-4 h-4 shrink-0" />
                         <span className="text-xs font-bold uppercase font-['Roboto']">Mission Control</span>
-                    </div>
-                )}
-                {isCollapsed ? (
-                    <button onClick={() => setIsCollapsed(false)} className="w-full flex justify-center text-[#FFC038] hover:text-white">
-                        <ArrowRight className="w-4 h-4" />
-                    </button>
-                ) : (
-                    <div className="flex items-center gap-2">
-                        {isGlobalLocked && <Lock className="w-3 h-3 text-[#FFC038]" />}
-                        <button onClick={() => setIsCollapsed(true)} className="text-[#FFC038]/50 hover:text-[#FFC038]">
-                            <ChevronLeft className="w-4 h-4" />
-                        </button>
                     </div>
                 )}
             </div>
@@ -1785,6 +2036,51 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
                                                             className="absolute right-1/2 top-0 bottom-0 bg-red-500 shadow-[0_0_10px_rgba(255,0,0,0.5)] transition-all duration-500"
                                                             style={{ width: `${Math.min((Math.abs(settings.currentPNL) / settings.dailyLossLimit) * 50, 50)}%` }}
                                                         ></div>
+                                                    )}
+                                                </div>
+
+                                                {/* Current Positions Window */}
+                                                <div className="mt-3 border border-[#FFC038]/20 rounded-lg overflow-hidden bg-[#0a0a00]">
+                                                    <div className="bg-[#FFC038]/10 px-2 py-1.5 flex justify-between items-center border-b border-[#FFC038]/10">
+                                                        <span className="text-[10px] font-bold text-[#FFC038] uppercase tracking-wider">Current Positions</span>
+                                                        <span className="text-[9px] text-[#FFC038]/50 font-mono">{positions.length} Active</span>
+                                                    </div>
+
+                                                    {positions.length === 0 ? (
+                                                        <div className="p-4 text-center">
+                                                            <span className="text-[10px] text-[#FFC038]/30 italic">No open positions</span>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="divide-y divide-[#FFC038]/10">
+                                                            {positions.map((pos) => (
+                                                                <div key={pos.contractId} className="p-2 flex items-center justify-between hover:bg-[#FFC038]/5 transition-colors">
+                                                                    <div className="flex flex-col">
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <span className={cn(
+                                                                                "text-[9px] font-bold px-1 rounded-sm",
+                                                                                pos.side === 'Long' ? "bg-[#00FF85]/20 text-[#00FF85]" : "bg-red-900/20 text-red-500"
+                                                                            )}>
+                                                                                {pos.side.toUpperCase()}
+                                                                            </span>
+                                                                            <span className="text-xs font-bold text-[#FFC038]">{pos.symbol}</span>
+                                                                        </div>
+                                                                        <div className="flex gap-2 mt-0.5">
+                                                                            <span className="text-[9px] text-[#FFC038]/50">{pos.quantity} @ {pos.averagePrice.toFixed(2)}</span>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="flex flex-col items-end">
+                                                                        <span className={cn(
+                                                                            "text-xs font-bold font-mono",
+                                                                            pos.profitAndLoss >= 0 ? "text-[#00FF85]" : "text-red-500"
+                                                                        )}>
+                                                                            {pos.profitAndLoss >= 0 ? '+' : ''}{pos.profitAndLoss.toFixed(2)}
+                                                                        </span>
+                                                                        <span className="text-[9px] text-[#FFC038]/40">UPL</span>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
                                                     )}
                                                 </div>
 
@@ -1975,26 +2271,30 @@ const MissionControl = ({ onPsychStateUpdate }: { onPsychStateUpdate: (score: nu
                 </div>
             )}
 
-            {isCollapsed && (
-                <div className="flex-1 flex flex-col items-center py-4 gap-4">
-                    <Layers className="w-5 h-5 text-[#FFC038]/50" />
-                    <div className="flex-1 w-full flex items-center justify-center">
-                        <span className="text-[#FFC038]/50 text-[10px] uppercase font-bold tracking-widest rotate-180 whitespace-nowrap" style={{ writingMode: 'vertical-rl' }}>
-                            Mission Control
-                        </span>
+            {
+                isCollapsed && (
+                    <div className="flex-1 flex flex-col items-center py-4 gap-4">
+                        <Layers className="w-5 h-5 text-[#FFC038]/50" />
+                        <div className="flex-1 w-full flex items-center justify-center">
+                            <span className="text-[#FFC038]/50 text-[10px] uppercase font-bold tracking-widest rotate-180 whitespace-nowrap" style={{ writingMode: 'vertical-rl' }}>
+                                Mission Control
+                            </span>
+                        </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
-            {!isCollapsed && isGlobalLocked && (
-                <div className="absolute inset-0 z-20 bg-black/60 backdrop-blur-md flex flex-col items-center justify-center text-center p-6 animate-in fade-in duration-1000">
-                    <Lock className="w-12 h-12 text-[#FFC038] mb-4" />
-                    <h2 className="text-xl font-bold text-[#FFC038] font-['Roboto'] tracking-widest mb-2">MISSION CONTROL LOCKED</h2>
-                    <p className="text-[#FFC038]/60 text-xs font-mono mb-6 max-w-[200px]">Advanced telemetry and psychological monitoring require an active uplink.</p>
-                    <Button onClick={() => updateTier('pulse')} variant="primary">INITIALIZE PULSE</Button>
-                </div>
-            )}
-        </div>
+            {
+                !isCollapsed && isGlobalLocked && (
+                    <div className="absolute inset-0 z-20 bg-black/60 backdrop-blur-md flex flex-col items-center justify-center text-center p-6 animate-in fade-in duration-1000">
+                        <Lock className="w-12 h-12 text-[#FFC038] mb-4" />
+                        <h2 className="text-xl font-bold text-[#FFC038] font-['Roboto'] tracking-widest mb-2">MISSION CONTROL LOCKED</h2>
+                        <p className="text-[#FFC038]/60 text-xs font-mono mb-6 max-w-[200px]">Advanced telemetry and psychological monitoring require an active uplink.</p>
+                        <Button onClick={() => updateTier('pulse')} variant="primary">INITIALIZE PULSE</Button>
+                    </div>
+                )
+            }
+        </div >
     );
 };
 
@@ -2191,7 +2491,7 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
                                                     )}
                                                 >
                                                     <div className="font-bold text-sm">{symbol}</div>
-                                                    <div className="text-[9px] opacity-70 truncate">{details.name}</div>
+                                                    <div className="text-[9px] opacity-70 truncate">{details.name} ({details.contract})</div>
                                                 </button>
                                             ))}
                                         </div>
@@ -2902,7 +3202,50 @@ Respond in JSON format ONLY:
     };
 
     const handlePsychUpdate = (score: number, state: EmotionalState, tiltCount: number) => {
-        setPsychState({ score, state, tiltCount });
+        // Only update if state changed significantly or periodically
+        // For now, we just log it or update local state if needed
+        // The monitor handles the alerts directly
+    };
+
+    const handleTilt = async (tiltCount: number) => {
+        console.log("User Tilt Detected:", tiltCount);
+
+        // Generate AI Response for Tilt
+        if (settings.geminiApiKey) {
+            const context: AgentContext = {
+                marketState: 'volatile', // Mock - should derive from market data
+                userState: {
+                    pnl: settings.currentPNL,
+                    emotionalState: 'tilt',
+                    tiltCount: tiltCount,
+                    openPositions: positions.length
+                },
+                activePositions: positions.map(p => ({
+                    symbol: p.symbol,
+                    pnl: p.profitAndLoss,
+                    side: p.side
+                }))
+            };
+
+            const prompt = `User has tilted ${tiltCount} times. PNL is ${settings.currentPNL}. Provide a short, punchy, drill-sergeant style warning to snap them out of it.`;
+
+            try {
+                const response = await generateAgentResponse(prompt, [], context, {
+                    name: 'Pulse',
+                    style: 'drill_sergeant',
+                    riskTolerance: 'low',
+                    maxDrawdown: settings.dailyLossLimit
+                });
+
+                // Add to chat or display as alert
+                // For now, we'll just log it, but ideally this goes into a chat/alert stream
+                console.log("AI Agent Tilt Response:", response);
+
+                // You could also trigger a specific voice alert here using ElevenLabs if integrated
+            } catch (e) {
+                console.error("Failed to generate AI response for tilt:", e);
+            }
+        }
     };
 
     const getTierLabel = () => {
@@ -2994,7 +3337,7 @@ Respond in JSON format ONLY:
 
                     {/* Middle Column (Mission Control) */}
                     <aside className="shrink-0 z-30 h-full">
-                        <MissionControl onPsychStateUpdate={handlePsychUpdate} />
+                        <MissionControl onPsychStateUpdate={handlePsychUpdate} onTilt={handleTilt} />
                     </aside>
 
                     {/* Right Column (Main Content) */}
@@ -3038,6 +3381,7 @@ Respond in JSON format ONLY:
                                         following={following}
                                         onToggleFollow={toggleFollow}
                                         onClear={() => setNewsItems([])}
+                                        onRefresh={() => fetchFeed(20)}
                                     />
                                 )}
                             </div>
