@@ -2169,9 +2169,8 @@ const AppContent = () => {
             // Unfiltered query including quotes
             const query = following.map(u => `from:${u.replace(/\s/g, '')}`).join(' OR ');
 
-            // IMPORTANT: Replace this URL with your deployed Worker URL
-            // After deploying the Worker, update this to: https://x-api-proxy.YOUR-SUBDOMAIN.workers.dev
-            const WORKER_URL = 'https://x-api-proxy.YOUR-SUBDOMAIN.workers.dev';
+            // IMPORTANT: Worker is deployed! Using real URL
+            const WORKER_URL = 'https://x-api-proxy.pricedinresearch.workers.dev';
 
             // Build request URL with query parameters
             const url = new URL(WORKER_URL);
