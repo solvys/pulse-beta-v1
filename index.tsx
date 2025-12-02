@@ -581,13 +581,12 @@ const KnowledgeBaseModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono text-[#FFC038]/70">
                                     <ul className="list-disc pl-4 space-y-1">
                                         <li><strong className="text-[#FFC038]">Trend:</strong> Strong directional bias on 15m/1h.</li>
-                                        <li><strong className="text-[#FFC038]">Volume:</strong> Above average relative volume (RVOL > 1.2).</li>
+                                        <li><strong className="text-[#FFC038]">Volume:</strong> Above average relative volume (RVOL &gt; 1.2).</li>
                                         <li><strong className="text-[#FFC038]">Structure:</strong> Clean flag or consolidation break.</li>
                                     </ul>
                                     <ul className="list-disc pl-4 space-y-1">
                                         <li><strong className="text-[#FFC038]">Entry:</strong> Break of consolidation high/low.</li>
                                         <li><strong className="text-[#FFC038]">Stop:</strong> Below consolidation low / Above high.</li>
-                                        <li><strong className="text-[#FFC038]">Target:</strong> 1:2 Risk/Reward minimum.</li>
                                     </ul>
                                 </div>
                             </div>
@@ -602,7 +601,7 @@ const KnowledgeBaseModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                 <p className="text-[#FFC038]/80 text-sm mb-4">Momentum scalping model based on rapid order flow imbalances.</p>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono text-[#FFC038]/70">
                                     <ul className="list-disc pl-4 space-y-1">
-                                        <li><strong className="text-[#FFC038]">Context:</strong> High volatility environment (IV > 20).</li>
+                                        <li><strong className="text-[#FFC038]">Context:</strong> High volatility environment (IV &gt; 20).</li>
                                         <li><strong className="text-[#FFC038]">Trigger:</strong> Aggressive market buying/selling absorption.</li>
                                         <li><strong className="text-[#FFC038]">Tape:</strong> Speed of tape acceleration.</li>
                                     </ul>
@@ -666,7 +665,7 @@ const KnowledgeBaseModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                 <p className="text-[#FFC038]/80 text-sm mb-4">Volatility mean reversion model based on VIX extremes.</p>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono text-[#FFC038]/70">
                                     <ul className="list-disc pl-4 space-y-1">
-                                        <li><strong className="text-[#FFC038]">Indicator:</strong> VIX > 22 or VIX Bollinger Band tag.</li>
+                                        <li><strong className="text-[#FFC038]">Indicator:</strong> VIX &gt; 22 or VIX Bollinger Band tag.</li>
                                         <li><strong className="text-[#FFC038]">Concept:</strong> Fear is overextended.</li>
                                         <li><strong className="text-[#FFC038]">Market:</strong> ES/NQ bottoms while VIX tops.</li>
                                     </ul>
