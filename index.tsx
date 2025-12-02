@@ -100,6 +100,7 @@ type AppSettings = {
     showUpgradeCTAText: boolean;
     xApiKey: string;
     xBearerToken: string;
+    xApiSecretKey: string;
     topstepXUserName: string;
     topstepXApiKey: string;
     customInstructions: string;
@@ -329,6 +330,7 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
             showUpgradeCTAText: true,
             xApiKey: '',
             xBearerToken: 'AAAAAAAAAAAAAAAAAAAAAB/L5gEAAAAAjeqUBtpMWRv3yVSiD8vc1HPvg1U=Rt4RbYZS5CPTE9lAYlo9wxs7m67teTzJh6I2I1HeNikHckBmXf',
+            xApiSecretKey: '',
             topstepXUserName: '',
             topstepXApiKey: '',
             customInstructions: '',
