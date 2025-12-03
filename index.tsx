@@ -2282,12 +2282,17 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
 
                                             // Place order
                                             const result = await ProjectXService.placeMarketOrder(
-                                                token,
-                                                Number(settings.selectedAccount),
-                                                nqContract.id,
-                                                'buy',
-                                                1
-                                            );
+                                                {
+                                                    activeThreadId: activeThreadId,
+                                                    instrumentDetails: {
+                                                        symbol: settings.selectedInstrument,
+                                                        name: 'Nasdaq 100', // TODO: Dynamic name
+                                                        tickSize: 0.25,
+                                                        pointValue: 20, // NQ point value
+                                                        ivRange: { low: 12, high: 25 }
+                                                    },
+                                                    algoState: algoState // Pass Algo State
+                                                });
 
                                             alert(`✅ Order placed successfully!\n\nOrder ID: ${result.orderId}`);
                                         } catch (error: any) {
