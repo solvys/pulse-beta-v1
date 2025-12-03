@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import Anthropic from "@anthropic-ai/sdk";
 import { EmotionalState } from './emotionalAlerts';
 
 // --- Types ---
@@ -23,7 +23,7 @@ export type AgentContext = {
 export type AgentSettings = {
     customInstructions: string;
     drillSergeantMode: boolean;
-    geminiApiKey?: string;
+    claudeApiKey?: string;
 };
 
 // --- Constants ---
@@ -140,7 +140,7 @@ export const generateAgentResponse = async (
     // 3. Check Special Commands
     const commandInstruction = handleSpecialCommands(userMessage, context);
 
-    // 4. Construct Prompt
+    // 4. Construct System Instruction
     let finalSystemInstruction = BASE_SYSTEM_INSTRUCTION + systemContext;
 
     // Inject Instrument Firmware
@@ -174,28 +174,48 @@ export const generateAgentResponse = async (
 
     try {
         // Use provided API key from settings first, then fallback to env/window
-        const apiKey = settings.geminiApiKey || (window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY;
+        const apiKey = settings.claudeApiKey || (window as any).__CLAUDE_API_KEY__ || import.meta.env.VITE_CLAUDE_API_KEY;
 
         if (!apiKey) {
-            console.error("[Gemini] No API Key found.");
-            return "Uplink failure. API Key missing. Check your settings, chap.";
+            console.error("[Claude] No API Key found.");
+            return "Uplink failure. Claude API Key missing. Check your settings, chap.";
         }
 
-        const genAI = new GoogleGenAI(apiKey);
-
-        console.log('[Gemini] Generating response...');
-
-        const model = genAI.getGenerativeModel({
-            model: "gemini-2.0-flash-exp",
-            systemInstruction: finalSystemInstruction,
+        const anthropic = new Anthropic({
+            apiKey: apiKey,
+            dangerouslyAllowBrowser: true // Required for browser usage
         });
 
-        const result = await model.generateContent(finalPrompt);
-        const response = await result.response;
+        console.log('[Claude] Generating response...');
 
-        return response.text();
+        // Convert history to Claude format
+        const messages: Anthropic.MessageParam[] = history.map(msg => ({
+            role: msg.role === 'model' ? 'assistant' : 'user',
+            content: msg.text
+        }));
+
+        // Add current message
+        messages.push({
+            role: 'user',
+            content: finalPrompt
+        });
+
+        const response = await anthropic.messages.create({
+            model: "claude-3-5-sonnet-20241022",
+            max_tokens: 1024,
+            system: finalSystemInstruction,
+            messages: messages
+        });
+
+        // Extract text from response
+        const textContent = response.content.find(block => block.type === 'text');
+        if (textContent && textContent.type === 'text') {
+            return textContent.text;
+        }
+
+        return "Signal degraded. No response from Claude.";
     } catch (error) {
-        console.error("[Gemini] Agent Uplink Error:", error);
+        console.error("[Claude] Agent Uplink Error:", error);
         return "Signal lost. Check your connection, old sport.";
     }
 };

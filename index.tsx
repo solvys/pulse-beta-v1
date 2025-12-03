@@ -137,7 +137,7 @@ type AppSettings = {
     // Instrument & Risk Settings
     selectedInstrument: string;
     contractSize: number;
-    geminiApiKey: string;
+    claudeApiKey: string;
 };
 
 type OnboardingData = {
@@ -365,7 +365,7 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
             tradeIntervalMinutes: 15,
             selectedInstrument: '/MES',
             contractSize: 1,
-            geminiApiKey: 'AIzaSyBFBWp6_BFo74X3zmHTNOu4gbT6XrQvZGc'
+            claudeApiKey: ''
         };
         const loaded = saved ? JSON.parse(saved) : {};
         return {
@@ -1394,7 +1394,7 @@ Session marked by strong adherence to the plan during the morning drive.Some sli
                 {/* {!isCollapsed && ( */}
                 <div className="flex items-center gap-2 text-[#FFC038] animate-in fade-in overflow-hidden whitespace-nowrap">
                     <Layers className="w-4 h-4 shrink-0" />
-                    <span className="text-xs font-bold uppercase font-['Roboto']">Mission Control</span>
+                    <span className="text-xs font-bold uppercase font-['Roboto']">Chat History</span>
                 </div>
                 {/* )} */}
                 <button onClick={() => createThread()} className="text-[#FFC038]/50 hover:text-[#FFC038]">
@@ -1559,7 +1559,7 @@ const ChatInterface = ({
         const agentSettings = {
             customInstructions: settings.customInstructions,
             drillSergeantMode: settings.alerts.voiceStyle === 'drill',
-            geminiApiKey: settings.geminiApiKey
+            claudeApiKey: settings.claudeApiKey
         };
 
         try {
@@ -2586,13 +2586,13 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
 
                                     <div className="space-y-4">
                                         <div>
-                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Gemini API Key (AI Agent)</label>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Claude API Key (AI Agent)</label>
                                             <input
                                                 type="password"
-                                                value={settings.geminiApiKey}
-                                                onChange={e => updateSettings({ geminiApiKey: e.target.value })}
+                                                value={settings.claudeApiKey}
+                                                onChange={e => updateSettings({ claudeApiKey: e.target.value })}
                                                 className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
-                                                placeholder="Enter Google Gemini API Key"
+                                                placeholder="Enter Anthropic Claude API Key"
                                             />
                                         </div>
 
@@ -3186,7 +3186,7 @@ Respond in JSON format ONLY:
             console.error("[Feed] Uplink Failed:", e);
             // Do NOT fallback to mock data in real mode
         }
-    }, [settings.xBearerToken, settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.geminiApiKey]);
+    }, [settings.xBearerToken, settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.claudeApiKey]);
 
     useEffect(() => {
         fetchFeed(); // Initial fetch
@@ -3228,7 +3228,7 @@ Respond in JSON format ONLY:
         console.log("User Tilt Detected:", tiltCount);
 
         // Generate AI Response for Tilt
-        if (settings.geminiApiKey) {
+        if (settings.claudeApiKey) {
             const context: AgentContext = {
                 marketState: 'volatile', // Mock - should derive from market data
                 userState: {
