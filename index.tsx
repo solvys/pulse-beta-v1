@@ -69,6 +69,15 @@ const INSTRUMENT_RULES: Record<string, { name: string; contract: string; tickSiz
     '/SIL': { name: 'Micro Silver', contract: 'Mar 26', tickSize: 0.005, pointValue: 50, ivRange: { low: 15, high: 35 } }
 };
 
+// TopstepX Contract Symbol Mapping
+// Maps our instrument keys to TopstepX symbolIds
+const TOPSTEPX_SYMBOL_MAP: Record<string, string[]> = {
+    '/MNQ': ['F.US.MNQH', 'F.US.MNQ', 'Micro E-mini NASDAQ'],  // Try variations
+    '/MES': ['F.US.MESH', 'F.US.MES', 'Micro E-mini S&P'],
+    '/MGC': ['F.US.MGCH', 'F.US.MGC', 'Micro Gold'],
+    '/SIL': ['F.US.SIL', 'Micro Silver']
+};
+
 // Fallback Mock Data for Feed
 const MOCK_WIRE_DATA = [
     { text: "ES Futures holding 5050 support, buyers stepping in.", source: "ZeroHedge" },
@@ -2156,43 +2165,98 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
                                             return;
                                         }
 
+                                        const selectedInst = settings.selectedInstrument;
+                                        const instrumentInfo = INSTRUMENT_RULES[selectedInst];
+
+                                        if (!instrumentInfo) {
+                                            console.error('TEST_TRADE_FAILED: Invalid instrument', { selectedInst });
+                                            alert(`❌ Invalid instrument selected: ${selectedInst}`);
+                                            return;
+                                        }
+
                                         try {
                                             // Fetch available contracts
+                                            console.log('TEST_TRADE: Fetching available contracts...');
                                             const contracts = await ProjectXService.getAvailableContracts(token, true);
+                                            console.log('TEST_TRADE: Available contracts:', contracts.map(c => ({ symbolId: c.symbolId, name: c.name, active: c.activeContract })));
 
-                                            // Find NQ contract (E-mini NASDAQ-100)
-                                            const nqContract = contracts.find(c => c.symbolId === 'F.US.ENQ' && c.activeContract);
+                                            // Get possible symbolIds for this instrument
+                                            const possibleSymbols = TOPSTEPX_SYMBOL_MAP[selectedInst] || [];
 
-                                            if (!nqContract) {
-                                                alert('NQ contract not found');
+                                            // Try to find matching contract - try multiple strategies
+                                            let targetContract = contracts.find(c =>
+                                                c.activeContract && possibleSymbols.some(sym =>
+                                                    c.symbolId?.includes(sym) ||
+                                                    c.name?.includes(sym) ||
+                                                    c.description?.includes(sym)
+                                                )
+                                            );
+
+                                            // Fallback: try partial match on instrument name
+                                            if (!targetContract) {
+                                                const instName = instrumentInfo.name;
+                                                targetContract = contracts.find(c =>
+                                                    c.activeContract && (
+                                                        c.name?.includes(instName) ||
+                                                        c.description?.includes(instName)
+                                                    )
+                                                );
+                                            }
+
+                                            if (!targetContract) {
+                                                const errorMsg = `${selectedInst} contract not found in TopstepX`;
+                                                console.error('TEST_TRADE_FAILED: CONTRACT_NOT_FOUND', {
+                                                    selectedInstrument: selectedInst,
+                                                    instrumentName: instrumentInfo.name,
+                                                    searchedSymbols: possibleSymbols,
+                                                    availableContracts: contracts.filter(c => c.activeContract).map(c => `${c.symbolId} - ${c.name}`)
+                                                });
+                                                alert(`❌ ${errorMsg}\n\nChecked for: ${possibleSymbols.join(', ')}\n\nPlease verify the contract is available in your TopstepX account.`);
                                                 return;
                                             }
+
+                                            console.log('TEST_TRADE: Found contract', {
+                                                symbolId: targetContract.symbolId,
+                                                name: targetContract.name,
+                                                id: targetContract.id
+                                            });
 
                                             // Confirm
                                             const confirmed = window.confirm(
                                                 `🔥 FIRE TEST TRADE\n\n` +
-                                                `Contract: ${nqContract.name} (${nqContract.description})\n` +
+                                                `Instrument: ${instrumentInfo.name}\n` +
+                                                `Contract: ${targetContract.name} (${targetContract.description || targetContract.symbolId})\n` +
                                                 `Side: BUY\n` +
-                                                `Quantity: 1\n` +
+                                                `Quantity: ${settings.contractSize || 1}\n` +
                                                 `Account: ${settings.selectedAccount}\n\n` +
                                                 `This will place a REAL MARKET ORDER. Continue?`
                                             );
 
-                                            if (!confirmed) return;
+                                            if (!confirmed) {
+                                                console.log('TEST_TRADE: User cancelled');
+                                                return;
+                                            }
 
                                             // Place order
+                                            console.log('TEST_TRADE: Placing order...');
                                             const result = await ProjectXService.placeMarketOrder(
                                                 token,
                                                 Number(settings.selectedAccount),
-                                                nqContract.id,
+                                                targetContract.id,
                                                 'buy',
-                                                1
+                                                settings.contractSize || 1
                                             );
 
-                                            alert(`✅ Order placed successfully!\n\nOrder ID: ${result.orderId}`);
+                                            console.log('TEST_TRADE_SUCCESS:', result);
+                                            alert(`✅ Order placed successfully!\n\nOrder ID: ${result.orderId}\nInstrument: ${instrumentInfo.name}`);
                                         } catch (error: any) {
-                                            alert(`❌ Order failed:\n\n${error.message}`);
-                                            console.error('Fire Test Trade Error:', error);
+                                            console.error('TEST_TRADE_FAILED:', {
+                                                error: error.message,
+                                                stack: error.stack,
+                                                selectedInstrument: selectedInst,
+                                                account: settings.selectedAccount
+                                            });
+                                            alert(`❌ Order failed:\n\n${error.message}\n\nCheck console for details.`);
                                         }
                                     }}
                                     variant="danger"
@@ -3044,8 +3108,24 @@ Respond in JSON format ONLY:
                 })
             });
 
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('GEMINI_IV_FAILED: API Error', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    error: errorData,
+                    instrument: settings.selectedInstrument
+                });
+                throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
+            }
+
             const data = await response.json();
             const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+            if (!aiResponse) {
+                console.warn('GEMINI_IV_FAILED: Empty response', { data });
+                throw new Error('Empty Gemini response');
+            }
 
             // Parse JSON from AI response
             const jsonMatch = aiResponse.match(/\{[^}]+\}/);
@@ -3054,9 +3134,17 @@ Respond in JSON format ONLY:
                 const value = parsed.direction === 'bearish' ? -Math.abs(parsed.points) : Math.abs(parsed.points);
                 const type = value >= 0 ? 'cyclical' : 'countercyclical';
                 return { type, value };
+            } else {
+                console.warn('GEMINI_IV_FAILED: Could not parse JSON from response', { aiResponse });
+                throw new Error('Invalid Gemini response format');
             }
-        } catch (error) {
-            console.error('Gemini IV Analysis Error:', error);
+        } catch (error: any) {
+            console.error('GEMINI_IV_FAILED:', {
+                error: error.message,
+                instrument: settings.selectedInstrument,
+                hasApiKey: !!settings.geminiApiKey,
+                headline: text.substring(0, 100)
+            });
         }
 
         // Fallback to simple analysis if API fails
