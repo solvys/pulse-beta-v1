@@ -2303,7 +2303,6 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
                 !isCollapsed && isGlobalLocked && (
                     <div className="absolute inset-0 z-20 bg-black/60 backdrop-blur-md flex flex-col items-center justify-center text-center p-6 animate-in fade-in duration-1000">
                         <Lock className="w-12 h-12 text-[#FFC038] mb-4" />
-                        <h2 className="text-xl font-bold text-[#FFC038] font-['Roboto'] tracking-widest mb-2">MISSION CONTROL LOCKED</h2>
                         <p className="text-[#FFC038]/60 text-xs font-mono mb-6 max-w-[200px]">Advanced telemetry and psychological monitoring require an active uplink.</p>
                         <Button onClick={() => updateTier('pulse')} variant="primary">INITIALIZE PULSE</Button>
                     </div>
