@@ -50,11 +50,13 @@ const NEWS_WORKER_URL = 'https://news-aggregator.YOUR_SUBDOMAIN.workers.dev/';
 
 ---
 
-## X API Proxy Worker (if needed)
+## Newswire API Worker (formerly X API Proxy)
+
+The X API proxy has been replaced/renamed to `newswire-api.js`.
 
 ```bash
-# Deploy X API proxy
-npx wrangler deploy x-api-proxy.js
+# Deploy Newswire API
+npx wrangler deploy newswire-api.js
 ```
 
 ---
