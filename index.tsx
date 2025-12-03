@@ -144,6 +144,7 @@ type AppSettings = {
     selectedInstrument: string;
     contractSize: number;
     geminiApiKey: string;
+    claudeApiKey: string;
 };
 
 type OnboardingData = {
@@ -368,7 +369,8 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
             tradeIntervalMinutes: 15,
             selectedInstrument: '/MES',
             contractSize: 1,
-            geminiApiKey: 'AIzaSyBFBWp6_BFo74X3zmHTNOu4gbT6XrQvZGc'
+            geminiApiKey: 'AIzaSyBFBWp6_BFo74X3zmHTNOu4gbT6XrQvZGc',
+            claudeApiKey: ''
         };
         const loaded = saved ? JSON.parse(saved) : {};
         return {
@@ -2656,7 +2658,19 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
 
                                     <div className="space-y-4">
                                         <div>
-                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Gemini API Key (Required for AI Agent)</label>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Claude API Key (Primary AI Engine)</label>
+                                            <input
+                                                type="password"
+                                                value={settings.claudeApiKey}
+                                                onChange={e => updateSettings({ claudeApiKey: e.target.value })}
+                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-2 py-1.5 text-[#FFC038] text-xs"
+                                                placeholder="Enter your Claude API key (sk-ant-...)..."
+                                            />
+                                            <p className="text-[8px] text-[#FFC038]/40 mt-1">Get your key at console.anthropic.com</p>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Gemini API Key (Fallback)</label>
                                             <input
                                                 type="password"
                                                 value={settings.geminiApiKey}
