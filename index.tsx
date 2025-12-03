@@ -1539,6 +1539,7 @@ const ChatInterface = ({
         const agentSettings = {
             customInstructions: settings.customInstructions,
             drillSergeantMode: settings.alerts.voiceStyle === 'drill',
+            claudeApiKey: settings.claudeApiKey,
             geminiApiKey: settings.geminiApiKey
         };
 
@@ -3312,10 +3313,10 @@ Respond in JSON format ONLY:
 
             try {
                 const response = await generateAgentResponse(prompt, [], context, {
-                    name: 'Pulse',
-                    style: 'drill_sergeant',
-                    riskTolerance: 'low',
-                    maxDrawdown: settings.dailyLossLimit
+                    customInstructions: settings.customInstructions,
+                    drillSergeantMode: settings.alerts.voiceStyle === 'drill',
+                    claudeApiKey: settings.claudeApiKey,
+                    geminiApiKey: settings.geminiApiKey
                 });
 
                 // Add to chat or display as alert
