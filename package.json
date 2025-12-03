@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
     "@google/genai": "latest",
     "@microsoft/signalr": "^10.0.0",
     "lucide-react": "^0.554.0",
