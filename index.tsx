@@ -98,6 +98,9 @@ type Thread = {
 
 type AppSettings = {
     showUpgradeCTAText: boolean;
+    alpacaApiKey: string;
+    alpacaApiSecret: string;
+    finnhubApiKey: string;
     topstepXUserName: string;
     topstepXApiKey: string;
     customInstructions: string;
@@ -325,6 +328,9 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
         // Merge defaults carefully in case of schema update
         const defaults: AppSettings = {
             showUpgradeCTAText: true,
+            alpacaApiKey: '',
+            alpacaApiSecret: '',
+            finnhubApiKey: '',
             topstepXUserName: '',
             topstepXApiKey: '',
             customInstructions: '',
@@ -2585,6 +2591,37 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
                                         <div className="border-t border-[#FFC038]/10 my-4"></div>
 
                                         <div>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Alpaca API Key</label>
+                                            <input
+                                                type="password"
+                                                value={settings.alpacaApiKey}
+                                                onChange={e => updateSettings({ alpacaApiKey: e.target.value })}
+                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                                placeholder="PK..."
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Alpaca API Secret</label>
+                                            <input
+                                                type="password"
+                                                value={settings.alpacaApiSecret}
+                                                onChange={e => updateSettings({ alpacaApiSecret: e.target.value })}
+                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Finnhub API Key</label>
+                                            <input
+                                                type="password"
+                                                value={settings.finnhubApiKey}
+                                                onChange={e => updateSettings({ finnhubApiKey: e.target.value })}
+                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                            />
+                                        </div>
+
+                                        <div className="border-t border-[#FFC038]/10 my-4"></div>
+
+                                        <div>
                                             <label className="block text-[10px] text-[#FFC038]/70 mb-1">TopstepX Username</label>
                                             <input
                                                 type="text"
@@ -3104,7 +3141,13 @@ Respond in JSON format ONLY:
             url.searchParams.set('limit', limit.toString());
 
             console.log('[Feed] Calling News Aggregator...');
-            const response = await fetch(url.toString());
+            const response = await fetch(url.toString(), {
+                headers: {
+                    'X-Alpaca-Key': settings.alpacaApiKey || '',
+                    'X-Alpaca-Secret': settings.alpacaApiSecret || '',
+                    'X-Finnhub-Key': settings.finnhubApiKey || ''
+                }
+            });
 
             if (!response.ok) {
                 throw new Error(`News aggregator returned ${response.status}`);
@@ -3122,9 +3165,9 @@ Respond in JSON format ONLY:
         } catch (e) {
             console.error("[Feed] Aggregator Failed:", e);
             // Fallback to mock data on error
-            processItems(MOCK_FEED_ITEMS.slice(0, limit));
+            processItems(MOCK_WIRE_DATA.slice(0, limit));
         }
-    }, [settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.claudeApiKey]);
+    }, [settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.claudeApiKey, settings.alpacaApiKey, settings.alpacaApiSecret, settings.finnhubApiKey]);
 
     useEffect(() => {
         fetchFeed(); // Initial fetch

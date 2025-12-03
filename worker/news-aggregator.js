@@ -13,7 +13,7 @@ export default {
                 headers: {
                     'Access-Control-Allow-Origin': '*',
                     'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                    'Access-Control-Allow-Headers': 'Content-Type',
+                    'Access-Control-Allow-Headers': 'Content-Type, X-Alpaca-Key, X-Alpaca-Secret, X-Finnhub-Key',
                     'Access-Control-Max-Age': '86400',
                 },
             });
@@ -30,8 +30,8 @@ export default {
 
             // Fetch from both sources in parallel
             const [alpacaNews, finnhubNews] = await Promise.all([
-                fetchAlpacaNews(env, limit / 2),
-                fetchFinnhubNews(env, limit / 2)
+                fetchAlpacaNews(env, request, limit / 2),
+                fetchFinnhubNews(env, request, limit / 2)
             ]);
 
             // Combine and sort by datetime
@@ -68,13 +68,15 @@ export default {
 /**
  * Fetch news from Alpaca Markets API
  */
-async function fetchAlpacaNews(env, limit = 10) {
+async function fetchAlpacaNews(env, request, limit = 10) {
     try {
-        const apiKey = env.ALPACA_API_KEY;
-        const apiSecret = env.ALPACA_API_SECRET;
+        // Try getting keys from headers first, then env vars
+        const apiKey = request.headers.get('X-Alpaca-Key') || env.ALPACA_API_KEY;
+        const apiSecret = request.headers.get('X-Alpaca-Secret') || env.ALPACA_API_SECRET;
 
         if (!apiKey || !apiSecret) {
-            console.warn('Alpaca API keys not configured');
+            // Only warn if we really expected to fetch (i.e. not just probing)
+            // console.warn('Alpaca API keys not configured');
             return [];
         }
 
@@ -96,7 +98,9 @@ async function fetchAlpacaNews(env, limit = 10) {
         });
 
         if (!response.ok) {
-            throw new Error(`Alpaca API error: ${response.statusText}`);
+            // Don't throw, just return empty to allow partial success
+            console.error(`Alpaca API error: ${response.statusText}`);
+            return [];
         }
 
         const data = await response.json();
@@ -121,12 +125,13 @@ async function fetchAlpacaNews(env, limit = 10) {
 /**
  * Fetch news from Finnhub API
  */
-async function fetchFinnhubNews(env, limit = 10) {
+async function fetchFinnhubNews(env, request, limit = 10) {
     try {
-        const apiKey = env.FINNHUB_API_KEY;
+        // Try getting key from headers first, then env var
+        const apiKey = request.headers.get('X-Finnhub-Key') || env.FINNHUB_API_KEY;
 
         if (!apiKey) {
-            console.warn('Finnhub API key not configured');
+            // console.warn('Finnhub API key not configured');
             return [];
         }
 
@@ -137,7 +142,8 @@ async function fetchFinnhubNews(env, limit = 10) {
         const response = await fetch(url.toString());
 
         if (!response.ok) {
-            throw new Error(`Finnhub API error: ${response.statusText}`);
+            console.error(`Finnhub API error: ${response.statusText}`);
+            return [];
         }
 
         const newsItems = await response.json();
