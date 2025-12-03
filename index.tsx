@@ -1912,13 +1912,19 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
                 </div>
             )}
 
-            <div className="p-4 border-b border-[#FFC038]/20 flex justify-between items-center bg-[#050500] z-30 relative h-14 shrink-0">
-                {!isCollapsed && (
-                    <div className="flex items-center gap-2 text-[#FFC038] animate-in fade-in overflow-hidden whitespace-nowrap">
-                        <Layers className="w-4 h-4 shrink-0" />
-                        <span className="text-xs font-bold uppercase font-['Roboto']">Mission Control</span>
+            {/* Sidebar Header */}
+            <div className="p-4 border-b border-[#FFC038]/20 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3 overflow-hidden">
+                    <div className="w-8 h-8 rounded bg-[#FFC038] flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(255,192,56,0.3)]">
+                        <Zap className="w-5 h-5 text-black" />
                     </div>
-                )}
+                    {!isCollapsed && (
+                        <div>
+                            <h1 className="font-bold text-lg text-[#FFC038] tracking-wider font-['Roboto'] truncate">PULSE</h1>
+                            <div className="text-[9px] text-[#FFC038]/50 tracking-[0.2em] uppercase truncate">Terminal v3.0</div>
+                        </div>
+                    )}
+                </div>
                 <div className="flex items-center gap-1">
                     <button
                         onClick={() => setShowKnowledgeBase(true)}
@@ -1934,6 +1940,15 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
                         {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
                     </button>
                 </div>
+            </div>
+
+            <div className="p-4 border-b border-[#FFC038]/20 flex justify-between items-center bg-[#050500] z-30 relative h-14 shrink-0">
+                {!isCollapsed && (
+                    <div className="flex items-center gap-2 text-[#FFC038] animate-in fade-in overflow-hidden whitespace-nowrap">
+                        <Layers className="w-4 h-4 shrink-0" />
+                        <span className="text-xs font-bold uppercase font-['Roboto']">Mission Control</span>
+                    </div>
+                )}
             </div>
 
             {isCollapsed ? (
