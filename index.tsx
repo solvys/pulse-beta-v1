@@ -1928,14 +1928,7 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
                 </div>
             </div>
 
-            <div className="p-4 border-b border-[#FFC038]/20 flex justify-between items-center bg-[#050500] z-30 relative h-14 shrink-0">
-                {!isCollapsed && (
-                    <div className="flex items-center gap-2 text-[#FFC038] animate-in fade-in overflow-hidden whitespace-nowrap">
-                        <Layers className="w-4 h-4 shrink-0" />
-                        <span className="text-xs font-bold uppercase font-['Roboto']">Mission Control</span>
-                    </div>
-                )}
-            </div>
+
 
             {isCollapsed ? (
                 <div className="flex-1 flex flex-col items-center py-6 gap-8 animate-in fade-in duration-300">
