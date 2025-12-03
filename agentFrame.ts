@@ -187,11 +187,7 @@ export const generateAgentResponse = async (
 
         const genAI = new GoogleGenAI(apiKey);
 
-        console.log('PRICE_AI: Generating response...', {
-            intent,
-            instrument: context.instrumentDetails?.symbol,
-            erState: context.erState
-        });
+        // Uncomment for debugging: console.log('PRICE_AI: Generating response...', { intent, instrument: context.instrumentDetails?.symbol, erState: context.erState });
 
         const model = genAI.getGenerativeModel({
             model: "gemini-2.0-flash-exp",

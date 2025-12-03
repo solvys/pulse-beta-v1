@@ -9,12 +9,31 @@ import {
     Siren, Paperclip, Camera, Video, FileText, Phone, MoreHorizontal, Send, Mic as MicIcon,
     Repeat, Image as ImageIcon, PanelLeftClose, PanelLeftOpen, Menu, LayoutDashboard, Keyboard, ChevronRight, ChevronLeft,
     Notebook, Plus, MessageSquare, Loader, GripHorizontal, HelpCircle, MousePointer2, AudioWaveform, RefreshCw, Bell, BellOff, UserPlus, UserMinus,
-    Link as LinkIcon, Square, Trash2, Play, Calendar, Loader2, Save, Cpu
+    Link as LinkIcon, Square, Trash2, Play, Loader2, Save
 } from 'lucide-react';
 import { GoogleGenAI, Modality, LiveServerMessage, Chat, GenerateContentResponse } from "@google/genai";
 import { triggerEmotionalAlert, EmotionalState, playTone, playTiltBass, playTransitionWarning } from './emotionalAlerts';
 import { generateAgentResponse, AgentContext } from './agentFrame';
 import { ProjectXService, ProjectXAccount, ProjectXPosition } from './projectXService';
+
+/*
+ * PULSE TRADING PLATFORM - Beta Testing Checklist
+ *
+ * ✅ VERIFIED FEATURES:
+ * [ ] Live Wire feed shows news with IV scores
+ * [ ] IV scores calculate using Claude (check console for 'IV_SCORE_SUCCESS: Claude')
+ * [ ] AI Price agent responds using Claude (check console for 'PRICE_AI_SUCCESS')
+ * [ ] PsychAssist monitoring starts/stops correctly
+ * [ ] No duplicate PULSE headers (only in MissionControl)
+ * [ ] Settings save Claude API key correctly
+ * [ ] TopstepX connection works (if configured)
+ * [ ] Fire Test Trade executes on selected instrument
+ *
+ * DEBUG TIPS:
+ * - Check browser console for 'PRICE_AI_' or 'IV_SCORE_' prefixed logs
+ * - Claude errors will show 'PRICE_AI_CLAUDE:' prefix
+ * - Gemini fallback shows 'Falling back to Gemini' log
+ */
 
 // --- Constants ---
 const GOLD = "#FFC038";
@@ -1566,7 +1585,7 @@ const ChatInterface = ({
     };
 
     const handleAttachmentSelect = (type: string) => {
-        console.log("Selected attachment:", type);
+        // Uncomment for debugging: console.log("Selected attachment:", type);
         setShowAttachments(false);
     };
 
@@ -1841,11 +1860,11 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
                         accountId,
                         (accData) => {
                             // Account update
-                            console.log("Account Update:", accData);
+                            // Uncomment for debugging: console.log("Account Update:", accData);
                         },
                         (tradeData) => {
                             // Trade update - update PnL
-                            console.log("Trade Update:", tradeData);
+                            // Uncomment for debugging: console.log("Trade Update:", tradeData);
                             if (tradeData.profitAndLoss !== undefined && tradeData.profitAndLoss !== null) {
                                 // Add this trade's PnL to current
                                 // Note: This is a simplification. Ideally we track all trades.
@@ -1853,7 +1872,7 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
                             }
                         },
                         (posData: ProjectXPosition) => {
-                            console.log("Position Update:", posData);
+                            // Uncomment for debugging: console.log("Position Update:", posData);
                             setPositions(prev => {
                                 const exists = prev.find(p => p.contractId === posData.contractId);
                                 if (posData.quantity === 0) {
@@ -3197,7 +3216,7 @@ Respond in JSON format ONLY:
 
     // Live Feed Fetcher with Fallback
     const fetchFeed = useCallback(async (limit: number = 20) => {
-        console.log(`[Feed] Fetching... Limit: ${limit}, Mock: ${settings.mockDataEnabled}`);
+        // Uncomment for debugging: console.log(`[Feed] Fetching... Limit: ${limit}`);
 
         // STRICT REAL MODE: Only mock if explicitly enabled
         if (settings.mockDataEnabled) {
@@ -3216,7 +3235,7 @@ Respond in JSON format ONLY:
 
         // REAL DATA MODE - Fetch from /api/newsfeed (Finnhub/Alpaca hybrid)
         try {
-            console.log("[Feed] Fetching from /api/newsfeed...");
+            // Uncomment for debugging: console.log("[Feed] Fetching from /api/newsfeed...");
 
             const res = await fetch('/api/newsfeed', {
                 method: 'GET'
@@ -3228,7 +3247,7 @@ Respond in JSON format ONLY:
             }
 
             const data = await res.json();
-            console.log(`[Feed] Received ${data.length || 0} items`);
+            // Uncomment for debugging: console.log(`[Feed] Received ${data.length || 0} items`);
 
             if (data && Array.isArray(data)) {
                 // Process items with Finnhub/Alpaca format: headline/text, datetime/timestamp
