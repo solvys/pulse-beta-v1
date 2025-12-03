@@ -98,9 +98,6 @@ type Thread = {
 
 type AppSettings = {
     showUpgradeCTAText: boolean;
-    xApiKey: string;
-    xBearerToken: string;
-    xApiSecretKey: string;
     topstepXUserName: string;
     topstepXApiKey: string;
     customInstructions: string;
@@ -328,9 +325,6 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
         // Merge defaults carefully in case of schema update
         const defaults: AppSettings = {
             showUpgradeCTAText: true,
-            xApiKey: '',
-            xBearerToken: 'AAAAAAAAAAAAAAAAAAAAAB/L5gEAAAAAjeqUBtpMWRv3yVSiD8vc1HPvg1U=Rt4RbYZS5CPTE9lAYlo9wxs7m67teTzJh6I2I1HeNikHckBmXf',
-            xApiSecretKey: '',
             topstepXUserName: '',
             topstepXApiKey: '',
             customInstructions: '',
@@ -1390,18 +1384,6 @@ Session marked by strong adherence to the plan during the morning drive.Some sli
                 </div>
             </div>
 
-            <div className="p-4 border-b border-[#FFC038]/20 flex justify-between items-center bg-[#050500] z-30 relative h-14 shrink-0">
-                {/* {!isCollapsed && ( */}
-                <div className="flex items-center gap-2 text-[#FFC038] animate-in fade-in overflow-hidden whitespace-nowrap">
-                    <Layers className="w-4 h-4 shrink-0" />
-                    <span className="text-xs font-bold uppercase font-['Roboto']">Mission Control</span>
-                </div>
-                {/* )} */}
-                <button onClick={() => createThread()} className="text-[#FFC038]/50 hover:text-[#FFC038]">
-                    <Plus className="w-4 h-4" />
-                </button>
-            </div>
-
             <div className="p-2 border-b border-[#FFC038]/10">
                 <Button onClick={handleGenerateRecap} variant="secondary" className="w-full text-[10px] py-1.5 h-auto">
                     <RefreshCw className="w-3 h-3 mr-1" /> Run Daily Recap
@@ -1596,10 +1578,34 @@ const ChatInterface = ({
     return (
         <div className="flex flex-col h-full bg-[#0a0a00] relative">
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                {!activeThread ? (
+                {!activeThread || activeThread.messages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-[#FFC038]/30">
                         <Notebook className="w-16 h-16 mb-4 opacity-50" />
-                        <p className="font-mono text-sm">Uplink Ready. Initialize Chat.</p>
+                        <p className="font-mono text-sm mb-8">Uplink Ready. Initialize Chat.</p>
+
+                        {/* Suggestion Chips */}
+                        <div className="flex flex-wrap gap-2 justify-center max-w-2xl">
+                            {[
+                                "Run the NTN report.",
+                                "Check the tape.",
+                                "Tell me what's going on in the markets today.",
+                                "Run my psych eval.",
+                                "How am I doing emotionally this week?",
+                                "Recap this week's trading.",
+                                "Give me the Tale of the Tape summary."
+                            ].map((prompt, i) => (
+                                <button
+                                    key={i}
+                                    onClick={() => {
+                                        setInput(prompt);
+                                        textareaRef.current?.focus();
+                                    }}
+                                    className="px-4 py-2 rounded-full bg-[#140a00] border border-[#FFC038]/30 text-[#FFC038]/70 text-xs font-medium hover:bg-[#FFC038]/10 hover:border-[#FFC038]/50 hover:text-[#FFC038] hover:shadow-[0_0_15px_rgba(255,192,56,0.2)] transition-all duration-200"
+                                >
+                                    {prompt}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 ) : (
                     activeThread.messages.map((msg, i) => (
@@ -2586,34 +2592,13 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
 
                                     <div className="space-y-4">
                                         <div>
-                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Gemini API Key (AI Agent)</label>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Gemini API Key (Required for AI Agent)</label>
                                             <input
                                                 type="password"
                                                 value={settings.geminiApiKey}
                                                 onChange={e => updateSettings({ geminiApiKey: e.target.value })}
                                                 className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
-                                                placeholder="Enter Google Gemini API Key"
-                                            />
-                                        </div>
-
-                                        <div className="border-t border-[#FFC038]/10 my-4"></div>
-
-                                        <div>
-                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">X / Twitter API Key</label>
-                                            <input
-                                                type="password"
-                                                value={settings.xApiKey}
-                                                onChange={e => updateSettings({ xApiKey: e.target.value })}
-                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">X / Twitter Bearer Token</label>
-                                            <input
-                                                type="password"
-                                                value={settings.xBearerToken}
-                                                onChange={e => updateSettings({ xBearerToken: e.target.value })}
-                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                                placeholder="Enter your Gemini API key..."
                                             />
                                         </div>
 
@@ -3124,7 +3109,7 @@ Respond in JSON format ONLY:
 
     // Live Feed Fetcher with Fallback
     const fetchFeed = useCallback(async (limit: number = 20) => {
-        console.log(`[Feed] Fetching... Limit: ${limit}, Mock: ${settings.mockDataEnabled}, Token: ${settings.xBearerToken ? 'Present' : 'Missing'}`);
+        console.log(`[Feed] Fetching... Limit: ${limit}, Mock: ${settings.mockDataEnabled}`);
 
         // STRICT REAL MODE: Only mock if explicitly enabled
         if (settings.mockDataEnabled) {
@@ -3141,34 +3126,12 @@ Respond in JSON format ONLY:
             return;
         }
 
-        // REAL DATA MODE
-        if (!settings.xBearerToken) {
-            console.warn("[Feed] No Bearer Token provided. Skipping fetch.");
-            return;
-        }
-
+        // REAL DATA MODE - Fetch from /api/newsfeed (Finnhub/Alpaca hybrid)
         try {
-            console.log("[Feed] Uplinking to X API via Worker...");
+            console.log("[Feed] Fetching from /api/newsfeed...");
 
-            // Unfiltered query including quotes
-            const query = "from:FinancialJuice OR from:WalterBloomberg OR from:ZeroHedge OR from:DeltaOne OR from:InsiderPaper";
-
-            // IMPORTANT: Worker is deployed! Using real URL
-            const WORKER_URL = 'https://x-api-proxy.pricedinresearch.workers.dev';
-
-            // Build request URL with query parameters
-            const url = new URL(WORKER_URL);
-            url.searchParams.set('query', query);
-            url.searchParams.set('max_results', limit.toString());
-            url.searchParams.set('tweet_fields', 'created_at,text,referenced_tweets');
-            url.searchParams.set('expansions', 'referenced_tweets.id');
-
-            // Make request to Worker (not directly to X API)
-            const res = await fetch(url.toString(), {
-                method: 'GET',
-                headers: {
-                    'X-Bearer-Token': settings.xBearerToken // Worker expects token in this header
-                }
+            const res = await fetch('/api/newsfeed', {
+                method: 'GET'
             });
 
             if (!res.ok) {
@@ -3177,16 +3140,23 @@ Respond in JSON format ONLY:
             }
 
             const data = await res.json();
-            console.log(`[Feed] Received ${data.data?.length || 0} items`);
+            console.log(`[Feed] Received ${data.length || 0} items`);
 
-            if (data.data && Array.isArray(data.data)) {
-                await processItems(data.data);
+            if (data && Array.isArray(data)) {
+                // Process items with Finnhub/Alpaca format: headline/text, datetime/timestamp
+                const processedItems = data.map((item: any) => ({
+                    id: item.id || Date.now() + Math.random(),
+                    created_at: item.datetime || item.timestamp || new Date().toISOString(),
+                    text: item.headline || item.text || '',
+                    source: item.source || 'Market Wire'
+                }));
+                await processItems(processedItems);
             }
         } catch (e) {
             console.error("[Feed] Uplink Failed:", e);
             // Do NOT fallback to mock data in real mode
         }
-    }, [settings.xBearerToken, settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.geminiApiKey]);
+    }, [settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.geminiApiKey]);
 
     useEffect(() => {
         fetchFeed(); // Initial fetch
