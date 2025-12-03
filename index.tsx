@@ -399,11 +399,18 @@ const useSettings = () => {
 
 // --- Components ---
 
-// Gemini Icon
-const GeminiIcon = ({ className }: { className?: string }) => (
-    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-        <path d="M12 2L14.8 9.2L22 12L14.8 14.8L12 22L9.2 14.8L2 12L9.2 9.2L12 2Z" fill="currentColor" />
-        <path d="M19 15L19.8 17.2L22 18L19.8 18.8L19 21L18.2 18.8L16 18L18.2 17.2L19 15Z" fill="currentColor" />
+// AI Icon
+const AIIcon = ({ className }: { className?: string }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M12 2a4 4 0 0 1 4 4v1a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/>
+        <path d="M12 11v5"/>
+        <path d="M9 22h6"/>
+        <path d="M12 16v6"/>
+        <circle cx="12" cy="6" r="1" fill="currentColor"/>
+        <path d="M8 6h-2a2 2 0 0 0-2 2v2"/>
+        <path d="M16 6h2a2 2 0 0 1 2 2v2"/>
+        <path d="M4 14v2a2 2 0 0 0 2 2h2"/>
+        <path d="M20 14v2a2 2 0 0 1-2 2h-2"/>
     </svg>
 );
 
@@ -1576,7 +1583,7 @@ const ChatInterface = ({
         return (
             <div className="h-full flex flex-col items-center justify-center p-8 text-center bg-[#0a0a00]">
                 <div className="max-w-md border border-[#FFC038]/20 bg-[#140a00] p-8 rounded-xl">
-                    <GeminiIcon className="w-16 h-16 text-[#FFC038] mx-auto mb-6" />
+                    <AIIcon className="w-16 h-16 text-[#FFC038] mx-auto mb-6" />
                     <h2 className="text-2xl font-bold text-[#FFC038] font-['Roboto'] mb-2">AI PRICE LOCKED</h2>
                     <p className="text-white/50 text-sm mb-6">Advanced market analysis agent requires Pulse+ clearance.</p>
                 </div>
@@ -2656,7 +2663,7 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
 
                                     <div className="space-y-4">
                                         <div>
-                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Gemini API Key (Required for AI Agent)</label>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Gemini API Key (Fallback)</label>
                                             <input
                                                 type="password"
                                                 value={settings.geminiApiKey}
@@ -2807,7 +2814,7 @@ const AIPriceSettingsModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: (
             ) : (
                 <div className="p-6">
                     <h2 className="text-xl font-bold text-[#FFC038] mb-6 flex items-center gap-2 font-['Roboto']">
-                        <GeminiIcon className="w-6 h-6" /> AI CONFIGURATION
+                        <AIIcon className="w-6 h-6" /> AI CONFIGURATION
                     </h2>
 
                     <div className="space-y-4">
@@ -3390,7 +3397,7 @@ Respond in JSON format ONLY:
                                 onClick={() => handleTabChange('analysis')}
                                 className={cn("p-3 rounded-xl transition-all", activeTab === 'analysis' ? "bg-[#FFC038] text-black shadow-[0_0_15px_rgba(255,192,56,0.5)]" : "text-[#FFC038]/50 hover:text-[#FFC038]")}
                             >
-                                <GeminiIcon className="w-6 h-6" />
+                                <AIIcon className="w-6 h-6" />
                             </button>
                             <button
                                 onClick={() => handleTabChange('news')}
