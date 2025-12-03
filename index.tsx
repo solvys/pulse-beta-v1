@@ -11,7 +11,6 @@ import {
     Notebook, Plus, MessageSquare, Loader, GripHorizontal, HelpCircle, MousePointer2, AudioWaveform, RefreshCw, Bell, BellOff, UserPlus, UserMinus,
     Link as LinkIcon, Square, Trash2, Play, Calendar, Loader2, Save, Cpu
 } from 'lucide-react';
-import { GoogleGenAI, Modality, LiveServerMessage, Chat, GenerateContentResponse } from "@google/genai";
 import { triggerEmotionalAlert, EmotionalState, playTone, playTiltBass, playTransitionWarning } from './emotionalAlerts';
 import { generateAgentResponse, AgentContext } from './agentFrame';
 import { ProjectXService, ProjectXAccount, ProjectXPosition } from './projectXService';
@@ -143,7 +142,7 @@ type AppSettings = {
     // Instrument & Risk Settings
     selectedInstrument: string;
     contractSize: number;
-    geminiApiKey: string;
+    claudeApiKey: string;
 };
 
 type OnboardingData = {
@@ -368,7 +367,7 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
             tradeIntervalMinutes: 15,
             selectedInstrument: '/MES',
             contractSize: 1,
-            geminiApiKey: 'AIzaSyBFBWp6_BFo74X3zmHTNOu4gbT6XrQvZGc'
+            claudeApiKey: import.meta.env.VITE_CLAUDE_API_KEY || ''
         };
         const loaded = saved ? JSON.parse(saved) : {};
         return {
@@ -1550,7 +1549,7 @@ const ChatInterface = ({
         const agentSettings = {
             customInstructions: settings.customInstructions,
             drillSergeantMode: settings.alerts.voiceStyle === 'drill',
-            geminiApiKey: settings.geminiApiKey
+            claudeApiKey: settings.claudeApiKey
         };
 
         try {
@@ -1913,19 +1912,13 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
                 </div>
             )}
 
-            {/* Sidebar Header */}
-            <div className="p-4 border-b border-[#FFC038]/20 flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-3 overflow-hidden">
-                    <div className="w-8 h-8 rounded bg-[#FFC038] flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(255,192,56,0.3)]">
-                        <Zap className="w-5 h-5 text-black" />
+            <div className="p-4 border-b border-[#FFC038]/20 flex justify-between items-center bg-[#050500] z-30 relative h-14 shrink-0">
+                {!isCollapsed && (
+                    <div className="flex items-center gap-2 text-[#FFC038] animate-in fade-in overflow-hidden whitespace-nowrap">
+                        <Layers className="w-4 h-4 shrink-0" />
+                        <span className="text-xs font-bold uppercase font-['Roboto']">Mission Control</span>
                     </div>
-                    {!isCollapsed && (
-                        <div>
-                            <h1 className="font-bold text-lg text-[#FFC038] tracking-wider font-['Roboto'] truncate">PULSE</h1>
-                            <div className="text-[9px] text-[#FFC038]/50 tracking-[0.2em] uppercase truncate">Terminal v3.0</div>
-                        </div>
-                    )}
-                </div>
+                )}
                 <div className="flex items-center gap-1">
                     <button
                         onClick={() => setShowKnowledgeBase(true)}
@@ -1941,15 +1934,6 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
                         {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
                     </button>
                 </div>
-            </div>
-
-            <div className="p-4 border-b border-[#FFC038]/20 flex justify-between items-center bg-[#050500] z-30 relative h-14 shrink-0">
-                {!isCollapsed && (
-                    <div className="flex items-center gap-2 text-[#FFC038] animate-in fade-in overflow-hidden whitespace-nowrap">
-                        <Layers className="w-4 h-4 shrink-0" />
-                        <span className="text-xs font-bold uppercase font-['Roboto']">Mission Control</span>
-                    </div>
-                )}
             </div>
 
             {isCollapsed ? (
@@ -2656,13 +2640,13 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
 
                                     <div className="space-y-4">
                                         <div>
-                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Gemini API Key (Required for AI Agent)</label>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Claude API Key (Required for AI Agent)</label>
                                             <input
                                                 type="password"
-                                                value={settings.geminiApiKey}
-                                                onChange={e => updateSettings({ geminiApiKey: e.target.value })}
+                                                value={settings.claudeApiKey}
+                                                onChange={e => updateSettings({ claudeApiKey: e.target.value })}
                                                 className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
-                                                placeholder="Enter your Gemini API key..."
+                                                placeholder="Enter your Claude API key..."
                                             />
                                         </div>
 
@@ -3092,39 +3076,45 @@ Ranges:
 Respond in JSON format ONLY:
 {"points": <number>, "direction": "bullish" or "bearish", "reasoning": "<brief explanation>"}`;
 
-            const apiKey = settings.geminiApiKey || (window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY;
+            const apiKey = settings.claudeApiKey || (window as any).__CLAUDE_API_KEY__ || import.meta.env.VITE_CLAUDE_API_KEY;
 
-            if (!apiKey) throw new Error("No Gemini API Key");
+            if (!apiKey) throw new Error("No Claude API Key");
 
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`, {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2023-06-01'
+                },
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.3,
-                        maxOutputTokens: 200
-                    }
+                    model: 'claude-sonnet-4-20250514',
+                    max_tokens: 300,
+                    messages: [{
+                        role: 'user',
+                        content: prompt
+                    }],
+                    temperature: 0.3
                 })
             });
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                console.error('GEMINI_IV_FAILED: API Error', {
+                console.error('CLAUDE_IV_FAILED: API Error', {
                     status: response.status,
                     statusText: response.statusText,
                     error: errorData,
                     instrument: settings.selectedInstrument
                 });
-                throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
+                throw new Error(`Claude API error: ${response.status} ${response.statusText}`);
             }
 
             const data = await response.json();
-            const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const aiResponse = data.content?.[0]?.text || '';
 
             if (!aiResponse) {
-                console.warn('GEMINI_IV_FAILED: Empty response', { data });
-                throw new Error('Empty Gemini response');
+                console.warn('CLAUDE_IV_FAILED: Empty response', { data });
+                throw new Error('Empty Claude response');
             }
 
             // Parse JSON from AI response
@@ -3135,14 +3125,14 @@ Respond in JSON format ONLY:
                 const type = value >= 0 ? 'cyclical' : 'countercyclical';
                 return { type, value };
             } else {
-                console.warn('GEMINI_IV_FAILED: Could not parse JSON from response', { aiResponse });
-                throw new Error('Invalid Gemini response format');
+                console.warn('CLAUDE_IV_FAILED: Could not parse JSON from response', { aiResponse });
+                throw new Error('Invalid Claude response format');
             }
         } catch (error: any) {
-            console.error('GEMINI_IV_FAILED:', {
+            console.error('CLAUDE_IV_FAILED:', {
                 error: error.message,
                 instrument: settings.selectedInstrument,
-                hasApiKey: !!settings.geminiApiKey,
+                hasApiKey: !!settings.claudeApiKey,
                 headline: text.substring(0, 100)
             });
         }
@@ -3244,7 +3234,7 @@ Respond in JSON format ONLY:
             console.error("[Feed] Uplink Failed:", e);
             // Do NOT fallback to mock data in real mode
         }
-    }, [settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.geminiApiKey]);
+    }, [settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.claudeApiKey]);
 
     useEffect(() => {
         fetchFeed(); // Initial fetch
@@ -3286,7 +3276,7 @@ Respond in JSON format ONLY:
         console.log("User Tilt Detected:", tiltCount);
 
         // Generate AI Response for Tilt
-        if (settings.geminiApiKey) {
+        if (settings.claudeApiKey) {
             const context: AgentContext = {
                 marketState: 'volatile', // Mock - should derive from market data
                 userState: {

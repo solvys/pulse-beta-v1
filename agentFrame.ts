@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import Anthropic from '@anthropic-ai/sdk';
 import { EmotionalState } from './emotionalAlerts';
 
 // --- Types ---
@@ -23,7 +23,7 @@ export type AgentContext = {
 export type AgentSettings = {
     customInstructions: string;
     drillSergeantMode: boolean;
-    geminiApiKey?: string;
+    claudeApiKey?: string;
 };
 
 // --- Constants ---
@@ -174,18 +174,21 @@ export const generateAgentResponse = async (
 
     try {
         // Use provided API key from settings first, then fallback to env/window
-        const apiKey = settings.geminiApiKey || (window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY;
+        const apiKey = settings.claudeApiKey || (window as any).__CLAUDE_API_KEY__ || import.meta.env.VITE_CLAUDE_API_KEY;
 
         if (!apiKey) {
-            console.error("PRICE_AI_GEMINI_FAILED: No API Key found", {
-                hasSettingsKey: !!settings.geminiApiKey,
-                hasWindowKey: !!(window as any).__GEMINI_API_KEY__,
-                hasEnvKey: !!import.meta.env.VITE_GEMINI_API_KEY
+            console.error("PRICE_AI_CLAUDE_FAILED: No API Key found", {
+                hasSettingsKey: !!settings.claudeApiKey,
+                hasWindowKey: !!(window as any).__CLAUDE_API_KEY__,
+                hasEnvKey: !!import.meta.env.VITE_CLAUDE_API_KEY
             });
             return "Uplink failure. API Key missing. Check your settings, chap.";
         }
 
-        const genAI = new GoogleGenAI(apiKey);
+        const anthropic = new Anthropic({
+            apiKey,
+            dangerouslyAllowBrowser: true // Required for client-side usage
+        });
 
         console.log('PRICE_AI: Generating response...', {
             intent,
@@ -193,18 +196,31 @@ export const generateAgentResponse = async (
             erState: context.erState
         });
 
-        const model = genAI.getGenerativeModel({
-            model: "gemini-2.0-flash-exp",
-            systemInstruction: finalSystemInstruction,
+        // Convert history to Claude format
+        const claudeMessages: any[] = [];
+        for (const msg of history) {
+            claudeMessages.push({
+                role: msg.role === 'model' ? 'assistant' : 'user',
+                content: msg.text
+            });
+        }
+        // Add current user message
+        claudeMessages.push({
+            role: 'user',
+            content: finalPrompt
         });
 
-        const result = await model.generateContent(finalPrompt);
-        const response = await result.response;
+        const response = await anthropic.messages.create({
+            model: "claude-sonnet-4-20250514",  // Best Claude model
+            max_tokens: 2048,
+            system: finalSystemInstruction,
+            messages: claudeMessages
+        });
 
-        const text = response.text();
+        const text = response.content[0].type === 'text' ? response.content[0].text : '';
 
         if (!text || text.length === 0) {
-            console.error("PRICE_AI_GEMINI_FAILED: Empty response", { result });
+            console.error("PRICE_AI_CLAUDE_FAILED: Empty response", { response });
             return "Got a blank signal, TP. The wire's gone quiet. Try again in a moment.";
         }
 
@@ -215,12 +231,12 @@ export const generateAgentResponse = async (
 
         return text;
     } catch (error: any) {
-        console.error("PRICE_AI_GEMINI_FAILED:", {
+        console.error("PRICE_AI_CLAUDE_FAILED:", {
             error: error.message,
             stack: error.stack,
             intent,
             instrument: context.instrumentDetails?.symbol,
-            hasApiKey: !!settings.geminiApiKey,
+            hasApiKey: !!settings.claudeApiKey,
             userMessage: userMessage.substring(0, 100)
         });
         return "Signal lost. The AI uplink dropped out, chap. Check console for details or try again.";

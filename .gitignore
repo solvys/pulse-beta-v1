@@ -39,3 +39,4 @@ wrangler.toml
 
 # Artifacts
 .gemini/
+.env
