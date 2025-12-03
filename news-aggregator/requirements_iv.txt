@@ -1,0 +1,2 @@
+# Enhanced IV Scorer dependencies
+google-genai==0.8.3

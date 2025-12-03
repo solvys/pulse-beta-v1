@@ -16,6 +16,7 @@ export type AgentContext = {
 export type AgentSettings = {
     customInstructions: string;
     drillSergeantMode: boolean;
+    deepThinking?: boolean; // Use advanced reasoning model
 };
 
 // --- Constants ---
@@ -117,19 +118,19 @@ export const generateAgentResponse = async (
     context: AgentContext,
     settings: AgentSettings
 ): Promise<string> => {
-    
+
     // 1. Parse Intent
     const intent = classifyIntent(userMessage);
 
     // 2. Build Context
     const systemContext = buildContextString(context, intent);
-    
+
     // 3. Check Special Commands
     const commandInstruction = handleSpecialCommands(userMessage, context);
-    
+
     // 4. Construct Prompt
     let finalSystemInstruction = BASE_SYSTEM_INSTRUCTION + systemContext;
-    
+
     if (settings.customInstructions) {
         finalSystemInstruction += `\n[USER OVERRIDE]: ${settings.customInstructions}`;
     }
@@ -149,12 +150,16 @@ export const generateAgentResponse = async (
 
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+        // Use more powerful model for deep thinking
+        const model = settings.deepThinking ? 'gemini-2.0-flash-thinking-exp' : 'gemini-2.5-flash';
+
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model,
             contents: finalPrompt,
             config: {
                 systemInstruction: finalSystemInstruction,
-                temperature: 0.7, // Slightly creative for the persona
+                temperature: settings.deepThinking ? 0.5 : 0.7, // More focused for deep thinking
             }
         });
 
