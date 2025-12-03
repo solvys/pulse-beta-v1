@@ -163,6 +163,7 @@ type AppSettings = {
     selectedInstrument: string;
     contractSize: number;
     geminiApiKey: string;
+    claudeApiKey: string;
 };
 
 type OnboardingData = {
@@ -387,7 +388,8 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
             tradeIntervalMinutes: 15,
             selectedInstrument: '/MES',
             contractSize: 1,
-            geminiApiKey: 'AIzaSyBFBWp6_BFo74X3zmHTNOu4gbT6XrQvZGc'
+            geminiApiKey: 'AIzaSyBFBWp6_BFo74X3zmHTNOu4gbT6XrQvZGc',
+            claudeApiKey: ''
         };
         const loaded = saved ? JSON.parse(saved) : {};
         return {
@@ -2675,7 +2677,18 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
 
                                     <div className="space-y-4">
                                         <div>
-                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Gemini API Key (Required for AI Agent)</label>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Claude API Key (Primary - IV Scoring)</label>
+                                            <input
+                                                type="password"
+                                                value={settings.claudeApiKey}
+                                                onChange={e => updateSettings({ claudeApiKey: e.target.value })}
+                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                                placeholder="Enter your Claude API key..."
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Gemini API Key (AI Agent + IV Fallback)</label>
                                             <input
                                                 type="password"
                                                 value={settings.geminiApiKey}
@@ -3089,12 +3102,11 @@ const AppContent = () => {
         tiltCount: 0
     });
 
-    // Calculate IV helper using Gemini API for realistic analysis
+    // Calculate IV helper using Claude API (primary) with Gemini fallback
     const calculateIV = async (text: string): Promise<IVData> => {
-        const instrument = INSTRUMENT_RULES[settings.selectedInstrument] || INSTRUMENT_RULES['ES'];
-        try {
-            // Use Gemini to analyze the headline for market impact
-            const prompt = `Analyze this market news headline for ${instrument.name} (${settings.selectedInstrument}) day trading:
+        const instrument = INSTRUMENT_RULES[settings.selectedInstrument] || INSTRUMENT_RULES['/MES'];
+
+        const prompt = `Analyze this market news headline for ${instrument.name} (${settings.selectedInstrument}) day trading:
 
 "${text}"
 
@@ -3111,62 +3123,72 @@ Ranges:
 Respond in JSON format ONLY:
 {"points": <number>, "direction": "bullish" or "bearish", "reasoning": "<brief explanation>"}`;
 
-            const apiKey = settings.geminiApiKey || (window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY;
+        try {
+            // Try Claude API first
+            const claudeApiKey = settings.claudeApiKey || (window as any).__CLAUDE_API_KEY__ || import.meta.env.VITE_CLAUDE_API_KEY;
 
-            if (!apiKey) throw new Error("No Gemini API Key");
-
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.3,
-                        maxOutputTokens: 200
-                    }
-                })
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                console.error('GEMINI_IV_FAILED: API Error', {
-                    status: response.status,
-                    statusText: response.statusText,
-                    error: errorData,
-                    instrument: settings.selectedInstrument
+            if (claudeApiKey) {
+                const response = await fetch('https://api.anthropic.com/v1/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': claudeApiKey,
+                        'anthropic-version': '2023-06-01',
+                        'anthropic-dangerous-direct-browser-access': 'true'
+                    },
+                    body: JSON.stringify({
+                        model: 'claude-sonnet-4-20250514',
+                        max_tokens: 200,
+                        messages: [{ role: 'user', content: prompt }]
+                    })
                 });
-                throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const aiResponse = data.content?.[0]?.text || '';
+
+                    const jsonMatch = aiResponse.match(/\{[^}]+\}/);
+                    if (jsonMatch) {
+                        const parsed = JSON.parse(jsonMatch[0]);
+                        const value = parsed.direction === 'bearish' ? -Math.abs(parsed.points) : Math.abs(parsed.points);
+                        const type = value >= 0 ? 'cyclical' : 'countercyclical';
+                        console.log('IV_SCORE_SUCCESS: Claude', { headline: text.substring(0, 50), value, type });
+                        return { type, value };
+                    }
+                }
+                console.warn('IV_SCORE: Claude failed, trying Gemini fallback');
             }
 
-            const data = await response.json();
-            const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            // Fallback to Gemini
+            const geminiApiKey = settings.geminiApiKey || (window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY;
 
-            if (!aiResponse) {
-                console.warn('GEMINI_IV_FAILED: Empty response', { data });
-                throw new Error('Empty Gemini response');
-            }
+            if (geminiApiKey) {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${geminiApiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: { temperature: 0.3, maxOutputTokens: 200 }
+                    })
+                });
 
-            // Parse JSON from AI response
-            const jsonMatch = aiResponse.match(/\{[^}]+\}/);
-            if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[0]);
-                const value = parsed.direction === 'bearish' ? -Math.abs(parsed.points) : Math.abs(parsed.points);
-                const type = value >= 0 ? 'cyclical' : 'countercyclical';
-                return { type, value };
-            } else {
-                console.warn('GEMINI_IV_FAILED: Could not parse JSON from response', { aiResponse });
-                throw new Error('Invalid Gemini response format');
+                if (response.ok) {
+                    const data = await response.json();
+                    const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                    const jsonMatch = aiResponse.match(/\{[^}]+\}/);
+                    if (jsonMatch) {
+                        const parsed = JSON.parse(jsonMatch[0]);
+                        const value = parsed.direction === 'bearish' ? -Math.abs(parsed.points) : Math.abs(parsed.points);
+                        const type = value >= 0 ? 'cyclical' : 'countercyclical';
+                        return { type, value };
+                    }
+                }
             }
         } catch (error: any) {
-            console.error('GEMINI_IV_FAILED:', {
-                error: error.message,
-                instrument: settings.selectedInstrument,
-                hasApiKey: !!settings.geminiApiKey,
-                headline: text.substring(0, 100)
-            });
+            console.error('IV_SCORE_FAILED:', { error: error.message, headline: text.substring(0, 100) });
         }
 
-        // Fallback to simple analysis if API fails
+        // Final fallback: keyword-based scoring
         const lowerText = text.toLowerCase();
         const bullishTerms = ['beats', 'surge', 'rally', 'gain', 'positive', 'growth', 'up', 'rise'];
         const bearishTerms = ['miss', 'crash', 'drop', 'loss', 'negative', 'decline', 'down', 'fall'];
@@ -3176,14 +3198,10 @@ Respond in JSON format ONLY:
         const isBearish = bearishTerms.some(t => lowerText.includes(t));
         const isMajor = majorTerms.some(t => lowerText.includes(t));
 
-        const magnitude = isMajor
-            ? Math.floor(30 + Math.random() * 40)
-            : Math.floor(10 + Math.random() * 20);
-
+        const magnitude = isMajor ? Math.floor(30 + Math.random() * 40) : Math.floor(10 + Math.random() * 20);
         let value = isBearish ? -magnitude : isBullish ? magnitude : (Math.random() > 0.5 ? 1 : -1) * magnitude;
 
-        const type = value >= 0 ? 'cyclical' : 'countercyclical';
-        return { type, value };
+        return { type: value >= 0 ? 'cyclical' : 'countercyclical', value };
     };
 
     const processItems = useCallback(async (rawItems: any[]) => {
