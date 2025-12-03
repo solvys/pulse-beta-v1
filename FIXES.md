@@ -233,7 +233,7 @@ POLL_INTERVAL_SECONDS=60
 ### B. Test Gemini AI (IV Scoring)
 
 1. Ensure `VITE_GEMINI_API_KEY` is set or add it in Settings
-2. Go to Live Wire feed
+2. Go to Tape Ticker feed
 3. Wait for news items to load
 4. Check console for:
    - `GEMINI_IV_FAILED:` logs if errors occur
@@ -279,7 +279,7 @@ POLL_INTERVAL_SECONDS=60
 2. Look at the error details (401 = bad key, 429 = rate limit, etc.)
 3. Verify API key is valid and has quota remaining
 
-### Issue: Live Wire shows "Waiting for wire data..."
+### Issue: Tape Ticker shows "Waiting for wire data..."
 
 **Cause:** News aggregator service not running or not delivering to correct endpoint.
 

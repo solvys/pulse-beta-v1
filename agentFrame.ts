@@ -39,7 +39,7 @@ Use market terminology correctly (bid/ask, tape, flow, iv, delta).
 RESPONSE FRAMEWORK:
 1. Parse the user's Intent (Market Analysis, Psych Check, or System Command).
 2. Classify the Domain (Markets, Psychology, News, System).
-3. Retrieve Data from the [CURRENT SYSTEM STATE] and [LIVE WIRE FEED].
+3. Retrieve Data from the [CURRENT SYSTEM STATE] and [TAPE TICKER FEED].
 4. REASON INTERNALLY (Chain-of-Thought): Analyze the sentiment, IV, and user's emotional state. connect the dots between news and price.
 5. GENERATE OUTPUT: Provide the final response in the "Price" persona. Be direct.
 
@@ -69,7 +69,7 @@ const buildContextString = (context: AgentContext, intent: string): string => {
 
     if (intent === 'market' || intent === 'news' || intent === 'general' || intent === 'system') {
         const recentFeed = context.feedItems.slice(0, 10).map(f => `[${f.time}] ${f.text} (IV: ${f.iv?.value.toFixed(1)})`).join('\n');
-        contextStr += `\n[LIVE WIRE FEED]\n${recentFeed || "Tape is quiet. No wire data."}\n`;
+        contextStr += `\n[TAPE TICKER FEED]\n${recentFeed || "Tape is quiet. No wire data."}\n`;
     }
 
     if (intent === 'psych' || context.erState === 'tilt') {
@@ -84,7 +84,7 @@ const handleSpecialCommands = (message: string, context: AgentContext): string |
 
     if (lower.includes('check the tape')) {
         return `[COMMAND: TAPE_READING]
-        TASK: Scan the [LIVE WIRE FEED].
+        TASK: Scan the [TAPE TICKER FEED].
         ACTION: Summarize the aggregate flow, news sentiment, and IV readings.
         OUTPUT: A "Tape Read" comprising:
         1. Sentiment (Bullish/Bearish/Neutral)

@@ -1277,7 +1277,7 @@ const NewsFeed = ({ items, onClear, onRefresh }: { items: FeedItem[], onClear: (
             <div className="p-4 border-b border-[#FFC038]/20 flex items-center justify-between bg-[#050500]">
                 <div className="flex items-center gap-2">
                     <Newspaper className="w-4 h-4 text-[#FFC038]" />
-                    <span className="text-xs font-bold text-[#FFC038] uppercase font-['Roboto'] tracking-widest">Live Wire</span>
+                    <span className="text-xs font-bold text-[#FFC038] uppercase font-['Roboto'] tracking-widest">Tape Ticker</span>
                 </div>
                 <div className="flex items-center gap-2">
                     <IVIndicator change={1.4} />
@@ -1307,7 +1307,7 @@ const NewsFeed = ({ items, onClear, onRefresh }: { items: FeedItem[], onClear: (
                         <span className="text-xs font-mono">Waiting for wire data...</span>
                     </div>
                 ) : (
-                    <FeedSection title="LIVE WIRE" items={items} onClear={onClear} />
+                    <FeedSection title="TAPE TICKER" items={items} onClear={onClear} />
                 )}
             </div>
         </div>
