@@ -1239,7 +1239,8 @@ const FeedSection: React.FC<{ title: string; items: FeedItem[]; onClear?: () => 
 );
 
 // News Feed Component
-const NewsFeed = ({ items, following, onToggleFollow, onClear, onRefresh }: { items: FeedItem[], following: string[], onToggleFollow: (s: string) => void, onClear: () => void, onRefresh?: () => void }) => {
+// News Feed Component
+const NewsFeed = ({ items, onClear, onRefresh }: { items: FeedItem[], onClear: () => void, onRefresh?: () => void }) => {
     const [notificationsEnabled, setNotificationsEnabled] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
 
@@ -1265,14 +1266,12 @@ const NewsFeed = ({ items, following, onToggleFollow, onClear, onRefresh }: { it
         setTimeout(() => setRefreshing(false), 500); // Keep button spinning for at least 500ms
     };
 
-    const MOCK_SOURCES = ["Walter Bloomberg", "ZeroHedge", "FinancialJuice", "DeltaOne", "InsiderPaper"];
-
     return (
         <div className="h-full flex flex-col relative bg-[#0a0a00]">
             <div className="p-4 border-b border-[#FFC038]/20 flex items-center justify-between bg-[#050500]">
                 <div className="flex items-center gap-2">
                     <Newspaper className="w-4 h-4 text-[#FFC038]" />
-                    <span className="text-xs font-bold text-[#FFC038] uppercase font-['Roboto'] tracking-widest">Following Feed</span>
+                    <span className="text-xs font-bold text-[#FFC038] uppercase font-['Roboto'] tracking-widest">Live Wire</span>
                 </div>
                 <div className="flex items-center gap-2">
                     <IVIndicator change={1.4} />
@@ -1293,24 +1292,6 @@ const NewsFeed = ({ items, following, onToggleFollow, onClear, onRefresh }: { it
                         {notificationsEnabled ? <Bell className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
                     </button>
                 </div>
-            </div>
-
-            <div className="px-4 py-2 border-b border-[#FFC038]/10 flex gap-2 overflow-x-auto scrollbar-none">
-                {MOCK_SOURCES.map(source => (
-                    <button
-                        key={source}
-                        onClick={() => onToggleFollow(source)}
-                        className={cn(
-                            "text-[9px] px-2 py-1 rounded border transition-all whitespace-nowrap flex items-center gap-1",
-                            following.includes(source)
-                                ? "bg-[#FFC038] text-black border-[#FFC038] font-bold"
-                                : "text-[#FFC038]/50 border-[#FFC038]/20 hover:border-[#FFC038]"
-                        )}
-                    >
-                        {following.includes(source) ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
-                        {source}
-                    </button>
-                ))}
             </div>
 
             <div className="flex-1 overflow-hidden p-0">
@@ -1727,7 +1708,7 @@ const TRADING_MODELS_CONFIG = [
 ];
 
 // Control Panel (Mission Control)
-const MissionControl = ({ onPsychStateUpdate, onTilt }: { onPsychStateUpdate: (score: number, state: EmotionalState, tiltCount: number) => void, onTilt: (tiltCount: number) => void }) => {
+const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychStateUpdate: (score: number, state: EmotionalState, tiltCount: number) => void, onTilt: (tiltCount: number) => void, psychState: { score: number, state: EmotionalState } }) => {
     const { user, updateTier } = useAuth();
     const { settings, updateSettings } = useSettings();
     const { activeThreadId, updateThread } = useThreads();
@@ -1956,7 +1937,47 @@ const MissionControl = ({ onPsychStateUpdate, onTilt }: { onPsychStateUpdate: (s
                 )}
             </div>
 
-            {!isCollapsed && (
+            {isCollapsed ? (
+                <div className="flex-1 flex flex-col items-center py-6 gap-8 animate-in fade-in duration-300">
+                    {/* Vertical ER Gauge */}
+                    <div className="flex flex-col items-center gap-2">
+                        <div className="w-3 h-32 bg-[#140a00] rounded-full border border-[#FFC038]/20 relative overflow-hidden">
+                            {/* Neutral Line */}
+                            <div className="absolute top-1/2 left-0 right-0 h-[1px] bg-gray-500 z-10" />
+
+                            {/* Fill */}
+                            <div
+                                className={cn(
+                                    "absolute left-0 right-0 transition-all duration-500 ease-out",
+                                    psychState.score >= 5 ? "bottom-1/2 bg-[#00FF85]" : "top-1/2 bg-red-500"
+                                )}
+                                style={{
+                                    height: `${Math.min(Math.abs(psychState.score - 5) * 10, 50)}%`,
+                                    top: psychState.score < 5 ? '50%' : 'auto',
+                                    bottom: psychState.score >= 5 ? '50%' : 'auto'
+                                }}
+                            />
+                        </div>
+                        <span className={cn(
+                            "text-[9px] font-bold font-mono",
+                            psychState.score >= 5 ? "text-[#00FF85]" : "text-red-500"
+                        )}>
+                            {psychState.score.toFixed(1)}
+                        </span>
+                    </div>
+
+                    {/* Algo Status */}
+                    <div className="flex flex-col items-center gap-1">
+                        <div className="relative">
+                            <Zap className={cn("w-5 h-5", settings.algoActive ? "text-[#FFC038]" : "text-[#FFC038]/30")} />
+                            <div className={cn(
+                                "absolute -top-1 -right-1 w-2 h-2 rounded-full border border-black",
+                                settings.algoActive ? "bg-[#00FF85] animate-pulse" : "bg-red-500"
+                            )} />
+                        </div>
+                    </div>
+                </div>
+            ) : (
                 <div className="flex-1 overflow-y-auto p-4 space-y-4 relative z-0">
 
                     {/* 1. Account Tracker (New) */}
@@ -2992,7 +3013,6 @@ const AppContent = () => {
     // Feed States
     const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
     const [newsItems, setNewsItems] = useState<FeedItem[]>([]);
-    const [following, setFollowing] = useState<string[]>(["FinancialJuice"]);
 
     // Psych State (Lifted for Agent Context)
     const [psychState, setPsychState] = useState<{ score: number, state: EmotionalState, tiltCount: number }>({
@@ -3131,7 +3151,7 @@ Respond in JSON format ONLY:
             console.log("[Feed] Uplinking to X API via Worker...");
 
             // Unfiltered query including quotes
-            const query = following.map(u => `from:${u.replace(/\s/g, '')}`).join(' OR ');
+            const query = "from:FinancialJuice OR from:WalterBloomberg OR from:ZeroHedge OR from:DeltaOne OR from:InsiderPaper";
 
             // IMPORTANT: Worker is deployed! Using real URL
             const WORKER_URL = 'https://x-api-proxy.pricedinresearch.workers.dev';
@@ -3166,7 +3186,7 @@ Respond in JSON format ONLY:
             console.error("[Feed] Uplink Failed:", e);
             // Do NOT fallback to mock data in real mode
         }
-    }, [settings.xBearerToken, settings.mockDataEnabled, following, processItems, settings.selectedInstrument, settings.geminiApiKey]);
+    }, [settings.xBearerToken, settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.geminiApiKey]);
 
     useEffect(() => {
         fetchFeed(); // Initial fetch
@@ -3197,10 +3217,6 @@ Respond in JSON format ONLY:
             setActiveTab('feed');
         }
     }
-
-    const toggleFollow = (source: string) => {
-        setFollowing(prev => prev.includes(source) ? prev.filter(s => s !== source) : [...prev, source]);
-    };
 
     const handlePsychUpdate = (score: number, state: EmotionalState, tiltCount: number) => {
         // Only update if state changed significantly or periodically
@@ -3338,7 +3354,7 @@ Respond in JSON format ONLY:
 
                     {/* Middle Column (Mission Control) */}
                     <aside className="shrink-0 z-30 h-full">
-                        <MissionControl onPsychStateUpdate={handlePsychUpdate} onTilt={handleTilt} />
+                        <MissionControl onPsychStateUpdate={handlePsychUpdate} onTilt={handleTilt} psychState={psychState} />
                     </aside>
 
                     {/* Right Column (Main Content) */}
@@ -3379,8 +3395,6 @@ Respond in JSON format ONLY:
                                 ) : (
                                     <NewsFeed
                                         items={newsItems}
-                                        following={following}
-                                        onToggleFollow={toggleFollow}
                                         onClear={() => setNewsItems([])}
                                         onRefresh={() => fetchFeed(20)}
                                     />

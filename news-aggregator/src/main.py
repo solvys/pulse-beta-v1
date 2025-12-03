@@ -13,6 +13,7 @@ from config import (
     ALPACA_API_SECRET,
     FINNHUB_API_KEY,
     GEMINI_API_KEY,
+    SELECTED_INSTRUMENT,
     POLL_INTERVAL_SECONDS,
     DEDUPE_WINDOW_HOURS,
     PULSE_ENDPOINT,
@@ -100,7 +101,8 @@ async def main():
             finnhub_key=FINNHUB_API_KEY,
             gemini_key=GEMINI_API_KEY,
             pulse_endpoint=PULSE_ENDPOINT,
-            dedupe_window_hours=DEDUPE_WINDOW_HOURS
+            dedupe_window_hours=DEDUPE_WINDOW_HOURS,
+            selected_instrument=SELECTED_INSTRUMENT
         )
         
         # Run based on mode

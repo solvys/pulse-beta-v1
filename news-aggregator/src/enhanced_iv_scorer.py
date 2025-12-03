@@ -182,13 +182,13 @@ Respond ONLY in JSON format:
             "direction": direction
         }
     
-    def calculate_iv_score(self, headline: str, instrument: str = "ES") -> Dict:
+    def calculate_iv_score(self, headline: str, instrument: str = "/MES") -> Dict:
         """
         Calculate IV score using VIX, Gemini sentiment, and historical calibration.
         
         Args:
             headline: News headline to analyze
-            instrument: Trading instrument (ES, NQ, RTY, etc.)
+            instrument: Trading instrument (/MES, /MNQ, /MGC, /SIL)
         
         Returns:
             {
@@ -197,7 +197,9 @@ Respond ONLY in JSON format:
                 'confidence': float,
                 'reasoning': str,
                 'vix_level': float,
-                'sentiment': str
+                'sentiment': str,
+                'event_type': str,
+                'instrument': str
             }
         """
         # 1. Get current VIX
@@ -239,16 +241,24 @@ Respond ONLY in JSON format:
         # 7. Calculate final IV points
         iv_points = base_points * sentiment_mult * vix_multiplier * calibration_factor
         
-        # 8. Instrument-specific adjustment
+        # 8. Instrument-specific adjustment (matches frontend INSTRUMENT_RULES)
+        # Normalize instrument name (handle both /MES and MES formats)
+        normalized_instrument = instrument.lstrip('/').upper()
+        
         instrument_multipliers = {
-            "ES": 1.0,      # S&P 500 futures (baseline)
-            "NQ": 1.4,      # Nasdaq more volatile
-            "RTY": 1.2,     # Russell 2000
-            "YM": 0.8,      # Dow less volatile
-            "CL": 1.3,      # Oil futures
-            "GC": 0.9,      # Gold futures
+            "MES": 1.0,      # Micro E-mini S&P 500 (baseline)
+            "MNQ": 1.4,      # Micro E-mini NASDAQ 100 (more volatile)
+            "MGC": 0.9,      # Micro Gold (less volatile, safe haven)
+            "SIL": 1.2,      # Micro Silver (moderately volatile)
+            # Legacy support for non-micro contracts
+            "ES": 1.0,
+            "NQ": 1.4,
+            "RTY": 1.2,
+            "YM": 0.8,
+            "CL": 1.3,
+            "GC": 0.9,
         }
-        instrument_mult = instrument_multipliers.get(instrument, 1.0)
+        instrument_mult = instrument_multipliers.get(normalized_instrument, 1.0)
         iv_points *= instrument_mult
         
         # 9. Determine cyclical vs countercyclical
@@ -256,7 +266,7 @@ Respond ONLY in JSON format:
         iv_type = "countercyclical" if direction == "bearish" else "cyclical"
         
         # 10. Build reasoning
-        reasoning = f"{event_type.replace('_', ' ').title()} event with {sentiment_analysis['sentiment'].replace('_', ' ')} sentiment. VIX at {current_vix:.1f} (vs normal ~15). Historical calibration suggests ~{iv_points:.0f}pt move."
+        reasoning = f"{event_type.replace('_', ' ').title()} event with {sentiment_analysis['sentiment'].replace('_', ' ')} sentiment. VIX at {current_vix:.1f} (vs normal ~15). Historical calibration suggests ~{iv_points:.0f}pt move for {instrument}."
         
         return {
             'type': iv_type,
@@ -265,7 +275,8 @@ Respond ONLY in JSON format:
             'reasoning': reasoning,
             'vix_level': current_vix,
             'sentiment': sentiment_analysis["sentiment"],
-            'event_type': event_type
+            'event_type': event_type,
+            'instrument': instrument
         }
     
     def backtest_accuracy(self) -> Dict:

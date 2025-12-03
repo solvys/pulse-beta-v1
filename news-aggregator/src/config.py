@@ -17,6 +17,9 @@ FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 # Gemini API Configuration (for IV scoring)
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
+# Instrument Configuration (for IV scoring)
+SELECTED_INSTRUMENT = os.getenv('SELECTED_INSTRUMENT', '/MES')  # Default to Micro E-mini S&P 500
+
 # Application Configuration
 POLL_INTERVAL_SECONDS = int(os.getenv('POLL_INTERVAL_SECONDS', 60))
 DEDUPE_WINDOW_HOURS = int(os.getenv('DEDUPE_WINDOW_HOURS', 24))

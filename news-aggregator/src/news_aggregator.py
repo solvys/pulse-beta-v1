@@ -23,7 +23,8 @@ class NewsAggregator:
         finnhub_key: str = None,
         gemini_key: str = None,
         pulse_endpoint: str = None,
-        dedupe_window_hours: int = 24
+        dedupe_window_hours: int = 24,
+        selected_instrument: str = "/MES"
     ):
         """
         Initialize news aggregator.
@@ -35,12 +36,14 @@ class NewsAggregator:
             gemini_key: Gemini API key for IV scoring
             pulse_endpoint: Pulse API endpoint
             dedupe_window_hours: Deduplication window in hours
+            selected_instrument: Trading instrument for IV scoring (/MES, /MNQ, /MGC, /SIL)
         """
         self.alpaca = AlpacaNewsClient(alpaca_key, alpaca_secret)
         self.finnhub = FinnHubNewsClient(finnhub_key) if finnhub_key else None
         self.deduper = NewsDedupe(window_hours=dedupe_window_hours)
         self.delivery = NewsDelivery(pulse_endpoint) if pulse_endpoint else NewsDelivery()
         self.iv_scorer = EnhancedIVScorer(gemini_key) if gemini_key else None
+        self.selected_instrument = selected_instrument
         
         self.stats = {
             'total_runs': 0,
@@ -86,7 +89,7 @@ class NewsAggregator:
                     try:
                         iv_score = self.iv_scorer.calculate_iv_score(
                             article.get('headline', ''),
-                            instrument="ES"  # Default to S&P futures
+                            instrument=self.selected_instrument
                         )
                         article['iv_score'] = iv_score
                         logger.debug(f"IV Score for '{article['headline'][:50]}...': {iv_score['value']}pts ({iv_score['type']})")
