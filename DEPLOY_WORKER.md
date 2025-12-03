@@ -19,15 +19,37 @@ npx wrangler secret put FINNHUB_API_KEY
 npx wrangler deploy news-aggregator.js --config wrangler-news.toml
 ```
 
-### Alternative: Set Variables in Dashboard
+### Option 2: Manual Deployment (Dashboard)
 
-1. Go to Cloudflare Workers dashboard
-2. Select your worker
-3. Go to Settings → Variables
-4. Add:
-   - `ALPACA_API_KEY`
-   - `ALPACA_API_SECRET`
-   - `FINNHUB_API_KEY`
+If you prefer using the Cloudflare Dashboard:
+
+1.  **Create Application**:
+    *   Log in to Cloudflare Dashboard > **Workers & Pages**.
+    *   Click **Create Application** > **Create Worker**.
+    *   Name it `news-aggregator` (or similar).
+    *   Click **Deploy**.
+
+2.  **Update Code**:
+    *   Click **Edit Code**.
+    *   Delete the default "Hello World" code.
+    *   Copy the entire content of `worker/news-aggregator.js` from your local project.
+    *   Paste it into the editor (replace everything).
+    *   Click **Save and Deploy**.
+
+3.  **Configure Secrets (API Keys)**:
+    *   Go back to the Worker's **Settings** tab.
+    *   Go to **Variables and Secrets**.
+    *   Click **Add** for each key:
+        *   `ALPACA_API_KEY`: Your Alpaca Key
+        *   `ALPACA_API_SECRET`: Your Alpaca Secret
+        *   `FINNHUB_API_KEY`: Your Finnhub Key
+    *   Click **Deploy** again if needed to apply changes.
+
+4.  **Get URL**:
+    *   Copy your worker's URL (e.g., `https://news-aggregator.your-subdomain.workers.dev`).
+    *   Update `index.tsx` with this new URL.
+
+### Option 3: CLI Deployment (Recommended)
 
 ### Test the Worker
 
