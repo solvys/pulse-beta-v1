@@ -1,4 +1,5 @@
-import { GoogleGenAI } from "@google/genai";
+import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI } from "@google/genai"; // Fallback only
 import { EmotionalState } from './emotionalAlerts';
 
 // --- Types ---
@@ -23,6 +24,7 @@ export type AgentContext = {
 export type AgentSettings = {
     customInstructions: string;
     drillSergeantMode: boolean;
+    claudeApiKey?: string;
     geminiApiKey?: string;
 };
 
@@ -173,22 +175,56 @@ export const generateAgentResponse = async (
     }
 
     try {
-        // Use provided API key from settings first, then fallback to env/window
-        const apiKey = settings.geminiApiKey || (window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY;
+        // Try Claude API first (primary)
+        const claudeApiKey = settings.claudeApiKey || (window as any).__CLAUDE_API_KEY__ || import.meta.env.VITE_CLAUDE_API_KEY;
 
-        if (!apiKey) {
-            console.error("PRICE_AI_GEMINI_FAILED: No API Key found", {
-                hasSettingsKey: !!settings.geminiApiKey,
-                hasWindowKey: !!(window as any).__GEMINI_API_KEY__,
-                hasEnvKey: !!import.meta.env.VITE_GEMINI_API_KEY
+        if (claudeApiKey) {
+            console.log('PRICE_AI: Using Claude API...', {
+                intent,
+                instrument: context.instrumentDetails?.symbol,
+                erState: context.erState
             });
+
+            const anthropic = new Anthropic({
+                apiKey: claudeApiKey,
+                dangerouslyAllowBrowser: true
+            });
+
+            const message = await anthropic.messages.create({
+                model: "claude-sonnet-4-20250514",
+                max_tokens: 1024,
+                system: finalSystemInstruction,
+                messages: [
+                    { role: "user", content: finalPrompt }
+                ]
+            });
+
+            const text = message.content[0].type === 'text' ? message.content[0].text : '';
+
+            if (!text || text.length === 0) {
+                console.warn("PRICE_AI_CLAUDE: Empty response, falling back to Gemini");
+                throw new Error("Empty Claude response");
+            }
+
+            console.log('PRICE_AI_SUCCESS: Claude response generated', {
+                length: text.length,
+                instrument: context.instrumentDetails?.symbol
+            });
+
+            return text;
+        }
+
+        // Fallback to Gemini if no Claude key
+        const geminiApiKey = settings.geminiApiKey || (window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY;
+
+        if (!geminiApiKey) {
+            console.error("PRICE_AI_FAILED: No API Key found (tried Claude and Gemini)");
             return "Uplink failure. API Key missing. Check your settings, chap.";
         }
 
-        const genAI = new GoogleGenAI(apiKey);
+        console.log('PRICE_AI: Falling back to Gemini API...');
 
-        // Uncomment for debugging: console.log('PRICE_AI: Generating response...', { intent, instrument: context.instrumentDetails?.symbol, erState: context.erState });
-
+        const genAI = new GoogleGenAI(geminiApiKey);
         const model = genAI.getGenerativeModel({
             model: "gemini-2.0-flash-exp",
             systemInstruction: finalSystemInstruction,
@@ -196,28 +232,20 @@ export const generateAgentResponse = async (
 
         const result = await model.generateContent(finalPrompt);
         const response = await result.response;
-
         const text = response.text();
 
         if (!text || text.length === 0) {
-            console.error("PRICE_AI_GEMINI_FAILED: Empty response", { result });
             return "Got a blank signal, TP. The wire's gone quiet. Try again in a moment.";
         }
 
-        console.log('PRICE_AI_SUCCESS: Response generated', {
-            length: text.length,
-            instrument: context.instrumentDetails?.symbol
-        });
-
         return text;
+
     } catch (error: any) {
-        console.error("PRICE_AI_GEMINI_FAILED:", {
+        console.error("PRICE_AI_FAILED:", {
             error: error.message,
             stack: error.stack,
             intent,
-            instrument: context.instrumentDetails?.symbol,
-            hasApiKey: !!settings.geminiApiKey,
-            userMessage: userMessage.substring(0, 100)
+            instrument: context.instrumentDetails?.symbol
         });
         return "Signal lost. The AI uplink dropped out, chap. Check console for details or try again.";
     }
