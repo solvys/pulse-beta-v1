@@ -98,9 +98,6 @@ type Thread = {
 
 type AppSettings = {
     showUpgradeCTAText: boolean;
-    alpacaApiKey: string;
-    alpacaApiSecret: string;
-    finnhubApiKey: string;
     topstepXUserName: string;
     topstepXApiKey: string;
     customInstructions: string;
@@ -126,6 +123,7 @@ type AppSettings = {
     // New Account Tracker & Algo Settings
     topstepAccountConnected: boolean;
     algoActive: boolean;
+    isAlgoEnabled: boolean; // Added
     currentPNL: number;
     tradingModelsExpanded: boolean;
     accountTrackerExpanded: boolean;
@@ -138,6 +136,9 @@ type AppSettings = {
     selectedInstrument: string;
     contractSize: number;
     claudeApiKey: string;
+    alpacaApiKey: string;
+    alpacaApiSecret: string;
+    finnhubApiKey: string;
 };
 
 type OnboardingData = {
@@ -159,7 +160,7 @@ type FeedItem = {
     id: number;
     time: string;
     text: string;
-    type: 'info' | 'warning' | 'success' | 'neutral' | 'psych';
+    type: 'info' | 'warning' | 'success' | 'neutral' | 'psych' | 'system' | 'alert';
     symbol?: string;
     source?: string;
     iv?: IVData;
@@ -355,6 +356,7 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
             // New Account Tracker & Algo Settings
             topstepAccountConnected: false,
             algoActive: false,
+            isAlgoEnabled: false, // Added default
             currentPNL: 0,
             tradingModelsExpanded: false,
             accountTrackerExpanded: false,
@@ -1723,6 +1725,11 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
     const [sessionSeconds, setSessionSeconds] = useState(0);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+    // Algo Engine State
+    const [algoState, setAlgoState] = useState<AlgoState | null>(null);
+    const algoEngineRef = useRef<AlgoEngine | null>(null);
+    const [newsItems, setNewsItems] = useState<FeedItem[]>([]); // Local state for news items to feed algo
+
     const formatTime = (totalSeconds: number) => {
         const h = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
         const m = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
@@ -1799,6 +1806,112 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
         };
         connect();
     }, [settings.topstepAccountConnected, settings.topstepXUserName, settings.topstepXApiKey]);
+
+    // Initialize Algo Engine
+    useEffect(() => {
+        algoEngineRef.current = new AlgoEngine(
+            (state) => {
+                setAlgoState(state);
+                // Push thinking to feed if significant
+                if (state.isThinking && Math.random() > 0.9) { // Debounce feed updates
+                    const newItem: FeedItem = {
+                        id: Date.now(),
+                        time: new Date().toLocaleTimeString(),
+                        text: `Algo: ${state.lastThought}`,
+                        type: 'system',
+                        source: 'Algo'
+                    };
+                    setNewsItems(prev => [newItem, ...prev].slice(0, 50));
+                }
+            },
+            (side, reason) => {
+                console.log(`Algo Signal: ${side} - ${reason}`);
+                // Execute Trade
+                if (settings.isAlgoEnabled && settings.topstepXApiKey) {
+                    handlePlaceOrder(side, 1); // Default size 1
+
+                    const newItem: FeedItem = {
+                        id: Date.now(),
+                        time: new Date().toLocaleTimeString(),
+                        text: `⚡ ALGO EXECUTION: ${side.toUpperCase()} ${settings.selectedInstrument} (${reason})`,
+                        type: 'alert',
+                        source: 'Algo'
+                    };
+                    setNewsItems(prev => [newItem, ...prev].slice(0, 50));
+                }
+            }
+        );
+    }, [settings.isAlgoEnabled, settings.topstepXApiKey]);
+
+    // Dynamic Contract Resolution
+    const resolveContract = async (symbol: string): Promise<string> => {
+        if (!settings.topstepXApiKey) return symbol; // Fallback
+
+        try {
+            const contracts = await ProjectXService.getAvailableContracts(settings.topstepXApiKey);
+
+            // Filter for contracts starting with our symbol (e.g. "MNQ")
+            // The 'name' field usually contains the ticker like "MNQZ5" or "MNQZ25"
+            // The 'symbolId' might be "F.US.MNQ"
+
+            // Strategy: Find contracts where symbolId contains our search
+            // e.g. search "MNQ", match "F.US.MNQ"
+
+            const matches = contracts.filter(c =>
+                c.symbolId.includes(symbol) || c.name.startsWith(symbol)
+            );
+
+            if (matches.length === 0) {
+                console.warn(`No contract found for ${symbol}`);
+                return symbol;
+            }
+
+            // Sort by expiration (name usually has year/month code)
+            // For now, pick the first "active" one
+            const active = matches.find(c => c.activeContract);
+            return active ? active.id : matches[0].id;
+
+        } catch (e) {
+            console.error("Contract Resolution Failed:", e);
+            return symbol;
+        }
+    };
+
+    const handlePlaceOrder = async (side: 'buy' | 'sell', size: number = 1) => {
+        if (!settings.topstepXApiKey || !settings.topstepXUserName) {
+            alert("Please configure TopstepX credentials in settings");
+            return;
+        }
+
+        // Resolve full contract ID
+        const contractId = await resolveContract(settings.selectedInstrument);
+        console.log(`Placing order for ${contractId} (${side})`);
+
+        try {
+            const accountId = 465; // TODO: Get from account selection
+            await ProjectXService.placeMarketOrder(
+                settings.topstepXApiKey,
+                accountId,
+                contractId,
+                side,
+                size
+            );
+
+            // Optimistic UI update or wait for SignalR
+            const newItem: FeedItem = {
+                id: Date.now(),
+                time: new Date().toLocaleTimeString(),
+                text: `Order Placed: ${side.toUpperCase()} ${size} ${settings.selectedInstrument} (${contractId})`,
+                type: 'alert',
+                source: 'System'
+            };
+            setNewsItems(prev => [newItem, ...prev].slice(0, 50));
+
+        } catch (e) {
+            console.error("Order Failed:", e);
+            alert("Failed to place order: " + (e as Error).message);
+        }
+    };
 
     // SignalR & PnL Tracking
     useEffect(() => {
