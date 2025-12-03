@@ -11,7 +11,7 @@ import {
     Notebook, Plus, MessageSquare, Loader, GripHorizontal, HelpCircle, MousePointer2, AudioWaveform, RefreshCw, Bell, BellOff, UserPlus, UserMinus,
     Link as LinkIcon, Square, Trash2, Play, Calendar, Loader2, Save, Cpu
 } from 'lucide-react';
-import { GoogleGenAI, Modality, LiveServerMessage, Chat, GenerateContentResponse } from "@google/genai";
+import Anthropic from "@anthropic-ai/sdk";
 import { triggerEmotionalAlert, EmotionalState, playTone, playTiltBass, playTransitionWarning } from './emotionalAlerts';
 import { generateAgentResponse, AgentContext } from './agentFrame';
 import { ProjectXService, ProjectXAccount, ProjectXPosition } from './projectXService';
@@ -70,12 +70,13 @@ const INSTRUMENT_RULES: Record<string, { name: string; contract: string; tickSiz
 };
 
 // TopstepX Contract Symbol Mapping
-// Maps our instrument keys to TopstepX symbolIds
+// Maps our instrument keys to TopstepX symbolIds with proper contract month codes
+// Month codes: H=Mar, M=Jun, U=Sep, Z=Dec, G=Feb
 const TOPSTEPX_SYMBOL_MAP: Record<string, string[]> = {
-    '/MNQ': ['F.US.MNQH', 'F.US.MNQ', 'Micro E-mini NASDAQ'],  // Try variations
-    '/MES': ['F.US.MESH', 'F.US.MES', 'Micro E-mini S&P'],
-    '/MGC': ['F.US.MGCH', 'F.US.MGC', 'Micro Gold'],
-    '/SIL': ['F.US.SIL', 'Micro Silver']
+    '/MNQ': ['MNQZ25', 'F.US.MNQZ25', 'MNQ Dec 25', 'MNQZ5', 'Micro E-mini NASDAQ'],  // Dec 2025
+    '/MES': ['MESZ25', 'F.US.MESZ25', 'MES Dec 25', 'MESZ5', 'Micro E-mini S&P'],     // Dec 2025
+    '/MGC': ['MGCG26', 'F.US.MGCG26', 'MGC Feb 26', 'MGCG6', 'Micro Gold'],           // Feb 2026
+    '/SIL': ['SILH26', 'F.US.SILH26', 'SIL Mar 26', 'SILH6', 'Micro Silver']          // Mar 2026
 };
 
 // Fallback Mock Data for Feed
@@ -143,7 +144,8 @@ type AppSettings = {
     // Instrument & Risk Settings
     selectedInstrument: string;
     contractSize: number;
-    geminiApiKey: string;
+    claudeApiKey: string;
+    finnhubApiKey: string;
 };
 
 type OnboardingData = {
@@ -368,7 +370,8 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
             tradeIntervalMinutes: 15,
             selectedInstrument: '/MES',
             contractSize: 1,
-            geminiApiKey: 'AIzaSyBFBWp6_BFo74X3zmHTNOu4gbT6XrQvZGc'
+            claudeApiKey: '',
+            finnhubApiKey: ''
         };
         const loaded = saved ? JSON.parse(saved) : {};
         return {
@@ -1550,7 +1553,7 @@ const ChatInterface = ({
         const agentSettings = {
             customInstructions: settings.customInstructions,
             drillSergeantMode: settings.alerts.voiceStyle === 'drill',
-            geminiApiKey: settings.geminiApiKey
+            claudeApiKey: settings.claudeApiKey
         };
 
         try {
@@ -1913,16 +1916,16 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
                 </div>
             )}
 
-            {/* Sidebar Header */}
+            {/* AI Price Header */}
             <div className="p-4 border-b border-[#FFC038]/20 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3 overflow-hidden">
                     <div className="w-8 h-8 rounded bg-[#FFC038] flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(255,192,56,0.3)]">
-                        <Zap className="w-5 h-5 text-black" />
+                        <Brain className="w-5 h-5 text-black" />
                     </div>
                     {!isCollapsed && (
                         <div>
-                            <h1 className="font-bold text-lg text-[#FFC038] tracking-wider font-['Roboto'] truncate">PULSE</h1>
-                            <div className="text-[9px] text-[#FFC038]/50 tracking-[0.2em] uppercase truncate">Terminal v3.0</div>
+                            <h1 className="font-bold text-lg text-[#FFC038] tracking-wider font-['Roboto'] truncate">AI PRICE</h1>
+                            <div className="text-[9px] text-[#FFC038]/50 tracking-[0.2em] uppercase truncate">Analysis Agent</div>
                         </div>
                     )}
                 </div>
@@ -3070,11 +3073,11 @@ const AppContent = () => {
         tiltCount: 0
     });
 
-    // Calculate IV helper using Gemini API for realistic analysis
+    // Calculate IV helper using Claude API for realistic analysis
     const calculateIV = async (text: string): Promise<IVData> => {
         const instrument = INSTRUMENT_RULES[settings.selectedInstrument] || INSTRUMENT_RULES['ES'];
         try {
-            // Use Gemini to analyze the headline for market impact
+            // Use Claude to analyze the headline for market impact
             const prompt = `Analyze this market news headline for ${instrument.name} (${settings.selectedInstrument}) day trading:
 
 "${text}"
@@ -3092,39 +3095,30 @@ Ranges:
 Respond in JSON format ONLY:
 {"points": <number>, "direction": "bullish" or "bearish", "reasoning": "<brief explanation>"}`;
 
-            const apiKey = settings.geminiApiKey || (window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY;
+            const apiKey = settings.claudeApiKey || (window as any).__CLAUDE_API_KEY__ || import.meta.env.VITE_CLAUDE_API_KEY;
 
-            if (!apiKey) throw new Error("No Gemini API Key");
+            if (!apiKey) throw new Error("No Claude API Key");
 
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.3,
-                        maxOutputTokens: 200
-                    }
-                })
+            const anthropic = new Anthropic({
+                apiKey: apiKey,
+                dangerouslyAllowBrowser: true
             });
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                console.error('GEMINI_IV_FAILED: API Error', {
-                    status: response.status,
-                    statusText: response.statusText,
-                    error: errorData,
-                    instrument: settings.selectedInstrument
-                });
-                throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
-            }
+            const message = await anthropic.messages.create({
+                model: "claude-sonnet-4-20250514",
+                max_tokens: 200,
+                temperature: 0.3,
+                messages: [{
+                    role: "user",
+                    content: prompt
+                }]
+            });
 
-            const data = await response.json();
-            const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const aiResponse = message.content[0].type === 'text' ? message.content[0].text : '';
 
             if (!aiResponse) {
-                console.warn('GEMINI_IV_FAILED: Empty response', { data });
-                throw new Error('Empty Gemini response');
+                console.warn('CLAUDE_IV_FAILED: Empty response', { message });
+                throw new Error('Empty Claude response');
             }
 
             // Parse JSON from AI response
@@ -3135,14 +3129,14 @@ Respond in JSON format ONLY:
                 const type = value >= 0 ? 'cyclical' : 'countercyclical';
                 return { type, value };
             } else {
-                console.warn('GEMINI_IV_FAILED: Could not parse JSON from response', { aiResponse });
-                throw new Error('Invalid Gemini response format');
+                console.warn('CLAUDE_IV_FAILED: Could not parse JSON from response', { aiResponse });
+                throw new Error('Invalid Claude response format');
             }
         } catch (error: any) {
-            console.error('GEMINI_IV_FAILED:', {
+            console.error('CLAUDE_IV_FAILED:', {
                 error: error.message,
                 instrument: settings.selectedInstrument,
-                hasApiKey: !!settings.geminiApiKey,
+                hasApiKey: !!settings.claudeApiKey,
                 headline: text.substring(0, 100)
             });
         }
@@ -3214,37 +3208,45 @@ Respond in JSON format ONLY:
             return;
         }
 
-        // REAL DATA MODE - Fetch from /api/newsfeed (Finnhub/Alpaca hybrid)
+        // REAL DATA MODE - Fetch directly from Finnhub
         try {
-            console.log("[Feed] Fetching from /api/newsfeed...");
+            const finnhubKey = settings.finnhubApiKey || (window as any).__FINNHUB_API_KEY__ || import.meta.env.VITE_FINNHUB_API_KEY || 'ctda2c1r01qjtbs8ceb0ctda2c1r01qjtbs8cebg';
 
-            const res = await fetch('/api/newsfeed', {
+            console.log("[Feed] Fetching from Finnhub...");
+
+            const res = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${finnhubKey}`, {
                 method: 'GET'
             });
 
             if (!res.ok) {
                 const errorText = await res.text();
-                throw new Error(`API Failure: ${res.status} ${res.statusText} - ${errorText}`);
+                console.error('[Feed] Finnhub API Error:', res.status, errorText);
+                throw new Error(`Finnhub API Failure: ${res.status} ${res.statusText}`);
             }
 
             const data = await res.json();
-            console.log(`[Feed] Received ${data.length || 0} items`);
+            console.log(`[Feed] Received ${data.length || 0} items from Finnhub`);
 
-            if (data && Array.isArray(data)) {
-                // Process items with Finnhub/Alpaca format: headline/text, datetime/timestamp
-                const processedItems = data.map((item: any) => ({
-                    id: item.id || Date.now() + Math.random(),
-                    created_at: item.datetime || item.timestamp || new Date().toISOString(),
-                    text: item.headline || item.text || '',
-                    source: item.source || 'Market Wire'
+            if (data && Array.isArray(data) && data.length > 0) {
+                // Process Finnhub format: headline, datetime, source
+                const processedItems = data.slice(0, limit).map((item: any) => ({
+                    id: item.id || (item.datetime * 1000) || Date.now() + Math.random(),
+                    created_at: new Date(item.datetime * 1000).toISOString(),
+                    text: item.headline || '',
+                    source: item.source || 'Finnhub'
                 }));
                 await processItems(processedItems);
+            } else {
+                console.warn('[Feed] No news items returned from Finnhub');
             }
-        } catch (e) {
-            console.error("[Feed] Uplink Failed:", e);
+        } catch (e: any) {
+            console.error("[Feed] Uplink Failed:", {
+                error: e.message,
+                stack: e.stack
+            });
             // Do NOT fallback to mock data in real mode
         }
-    }, [settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.geminiApiKey]);
+    }, [settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.claudeApiKey, settings.finnhubApiKey]);
 
     useEffect(() => {
         fetchFeed(); // Initial fetch
