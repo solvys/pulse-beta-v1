@@ -98,9 +98,6 @@ type Thread = {
 
 type AppSettings = {
     showUpgradeCTAText: boolean;
-    xApiKey: string;
-    xBearerToken: string;
-    xApiSecretKey: string;
     topstepXUserName: string;
     topstepXApiKey: string;
     customInstructions: string;
@@ -328,9 +325,6 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
         // Merge defaults carefully in case of schema update
         const defaults: AppSettings = {
             showUpgradeCTAText: true,
-            xApiKey: '',
-            xBearerToken: 'AAAAAAAAAAAAAAAAAAAAAB/L5gEAAAAAjeqUBtpMWRv3yVSiD8vc1HPvg1U=Rt4RbYZS5CPTE9lAYlo9wxs7m67teTzJh6I2I1HeNikHckBmXf',
-            xApiSecretKey: '',
             topstepXUserName: '',
             topstepXApiKey: '',
             customInstructions: '',
@@ -2591,27 +2585,6 @@ const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: 
                                         <div className="border-t border-[#FFC038]/10 my-4"></div>
 
                                         <div>
-                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">X / Twitter API Key</label>
-                                            <input
-                                                type="password"
-                                                value={settings.xApiKey}
-                                                onChange={e => updateSettings({ xApiKey: e.target.value })}
-                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">X / Twitter Bearer Token</label>
-                                            <input
-                                                type="password"
-                                                value={settings.xBearerToken}
-                                                onChange={e => updateSettings({ xBearerToken: e.target.value })}
-                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
-                                            />
-                                        </div>
-
-                                        <div className="border-t border-[#FFC038]/10 my-4"></div>
-
-                                        <div>
                                             <label className="block text-[10px] text-[#FFC038]/70 mb-1">TopstepX Username</label>
                                             <input
                                                 type="text"
@@ -3094,7 +3067,7 @@ Respond in JSON format ONLY:
                 time: new Date(t.created_at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' }) + " EST",
                 text: t.text,
                 type: 'info',
-                source: 'X', // Default source
+                source: 'Aggregator', // Default source
                 iv: iv
             };
         }));
@@ -3116,69 +3089,42 @@ Respond in JSON format ONLY:
 
     // Live Feed Fetcher with Fallback
     const fetchFeed = useCallback(async (limit: number = 20) => {
-        console.log(`[Feed] Fetching... Limit: ${limit}, Mock: ${settings.mockDataEnabled}, Token: ${settings.xBearerToken ? 'Present' : 'Missing'}`);
+        console.log(`[Feed] Fetching from News Aggregator... Limit: ${limit}, Mock: ${settings.mockDataEnabled}`);
 
-        // STRICT REAL MODE: Only mock if explicitly enabled
         if (settings.mockDataEnabled) {
-            // Simulate network latency then return mock
-            await new Promise(r => setTimeout(r, 500));
-            const mockItem = MOCK_WIRE_DATA[Math.floor(Math.random() * MOCK_WIRE_DATA.length)];
-            const newRawItems = [{
-                id: Date.now(),
-                created_at: new Date().toISOString(),
-                text: mockItem.text,
-                source: mockItem.source
-            }];
-            await processItems(newRawItems);
-            return;
-        }
-
-        // REAL DATA MODE
-        if (!settings.xBearerToken) {
-            console.warn("[Feed] No Bearer Token provided. Skipping fetch.");
+            processItems(MOCK_WIRE_DATA.slice(0, limit));
             return;
         }
 
         try {
-            console.log("[Feed] Uplinking to X API via Worker...");
+            // Use news aggregator endpoint (Alpaca + Finnhub)
+            const NEWS_AGGREGATOR_URL = 'https://news-aggregator.pricedinresearch.workers.dev';
 
-            // Unfiltered query including quotes
-            const query = "from:FinancialJuice OR from:WalterBloomberg OR from:ZeroHedge OR from:DeltaOne OR from:InsiderPaper";
+            const url = new URL(NEWS_AGGREGATOR_URL);
+            url.searchParams.set('limit', limit.toString());
 
-            // IMPORTANT: Worker is deployed! Using real URL
-            const WORKER_URL = 'https://x-api-proxy.pricedinresearch.workers.dev';
+            console.log('[Feed] Calling News Aggregator...');
+            const response = await fetch(url.toString());
 
-            // Build request URL with query parameters
-            const url = new URL(WORKER_URL);
-            url.searchParams.set('query', query);
-            url.searchParams.set('max_results', limit.toString());
-            url.searchParams.set('tweet_fields', 'created_at,text,referenced_tweets');
-            url.searchParams.set('expansions', 'referenced_tweets.id');
-
-            // Make request to Worker (not directly to X API)
-            const res = await fetch(url.toString(), {
-                method: 'GET',
-                headers: {
-                    'X-Bearer-Token': settings.xBearerToken // Worker expects token in this header
-                }
-            });
-
-            if (!res.ok) {
-                const errorText = await res.text();
-                throw new Error(`API Failure: ${res.status} ${res.statusText} - ${errorText}`);
+            if (!response.ok) {
+                throw new Error(`News aggregator returned ${response.status}`);
             }
 
-            const data = await res.json();
-            console.log(`[Feed] Received ${data.data?.length || 0} items`);
+            const data = await response.json();
 
-            if (data.data && Array.isArray(data.data)) {
-                await processItems(data.data);
+            if (data.success && data.data) {
+                console.log(`[Feed] ✅ Received ${data.count} items from aggregator`);
+                processItems(data.data);
+            } else {
+                throw new Error('Invalid response format from news aggregator');
             }
+
         } catch (e) {
-            console.error("[Feed] Uplink Failed:", e);
-            // Do NOT fallback to mock data in real mode
+            console.error("[Feed] Aggregator Failed:", e);
+            // Fallback to mock data on error
+            processItems(MOCK_FEED_ITEMS.slice(0, limit));
         }
-    }, [settings.xBearerToken, settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.claudeApiKey]);
+    }, [settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.claudeApiKey]);
 
     useEffect(() => {
         fetchFeed(); // Initial fetch
