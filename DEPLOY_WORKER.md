@@ -1,40 +1,74 @@
-# News Feed Cloudflare Worker Deployment
+# Cloudflare Workers Deployment Guide
 
-## Quick Deploy Instructions
+## News Aggregator Worker
 
-Your X API proxy worker code is already correct with CORS headers in `/worker/x-api-proxy.js`.
-
-To deploy/redeploy the worker to fix the CORS errors:
+### Quick Deploy
 
 ```bash
-cd "/Users/tifos/Library/Mobile Documents/com~apple~CloudDocs/Priced In/pulse/worker"
+cd worker
 
 # Login to Cloudflare (if not already)
 npx wrangler login
 
-# Deploy the worker
-npx wrangler deploy x-api-proxy.js
+# Set API keys as secrets (recommended)
+npx wrangler secret put ALPACA_API_KEY
+npx wrangler secret put ALPACA_API_SECRET
+npx wrangler secret put FINNHUB_API_KEY
 
-# Or publish (same thing)
-npx wrangler publish x-api-proxy.js
+# Deploy the news aggregator
+npx wrangler deploy news-aggregator.js --config wrangler-news.toml
 ```
 
-The worker will be deployed to: `https://x-api-proxy.pricedinresearch.workers.dev/`
+### Alternative: Set Variables in Dashboard
 
-## What the Worker Does
+1. Go to Cloudflare Workers dashboard
+2. Select your worker
+3. Go to Settings → Variables
+4. Add:
+   - `ALPACA_API_KEY`
+   - `ALPACA_API_SECRET`
+   - `FINNHUB_API_KEY`
 
-- Proxies requests to X/Twitter API
-- Adds proper CORS headers for localhost:3000
-- Requires bearer token in `X-Bearer-Token` header
-- Handles preflight OPTIONS requests
+### Test the Worker
 
-## Current Issues in Console
+Once deployed, test it:
+```bash
+curl "https://news-aggregator.YOUR_SUBDOMAIN.workers.dev/?limit=10"
+```
 
-1. **CORS Error**: Worker deployed but not responding with CORS headers → **REDEPLOY WORKER**
-2. **Claude Model**: Fixed (changed from 20241022 to 20240620) ✅
-3. **ProjectX Auth**: Needs valid credentials in settings
-4. **SignalR**: Connects then disconnects (auth issue)
+### Update Frontend
 
-## Alternative: Update Worker Code
+In `index.tsx`, change the worker URL from:
+```typescript
+const WORKER_URL = 'https://x-api-proxy.pricedinresearch.workers.dev/';
+```
 
-If the worker needs changes, the file at `/worker/x-api-proxy.js` already has correct CORS configuration. Just redeploy it.
+To:
+```typescript
+const NEWS_WORKER_URL = 'https://news-aggregator.YOUR_SUBDOMAIN.workers.dev/';
+```
+
+---
+
+## X API Proxy Worker (if needed)
+
+```bash
+# Deploy X API proxy
+npx wrangler deploy x-api-proxy.js
+```
+
+---
+
+## Troubleshooting
+
+**CORS errors?**
+- Check that worker is returning proper CORS headers
+- Verify `Access-Control-Allow-Origin: *` is set
+
+**No data?**
+- Check API keys are set in Cloudflare dashboard
+- View worker logs: `npx wrangler tail news-aggregator`
+
+**Rate limits?**
+- Alpaca: 200 requests/minute
+- Finnhub: Depends on plan (free tier: 60 calls/minute)
