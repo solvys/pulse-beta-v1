@@ -132,6 +132,7 @@ type AppSettings = {
     // New Account Tracker & Algo Settings
     topstepAccountConnected: boolean;
     algoActive: boolean;
+    isAlgoEnabled: boolean; // Added
     currentPNL: number;
     tradingModelsExpanded: boolean;
     accountTrackerExpanded: boolean;
@@ -143,7 +144,10 @@ type AppSettings = {
     // Instrument & Risk Settings
     selectedInstrument: string;
     contractSize: number;
-    geminiApiKey: string;
+    claudeApiKey: string;
+    alpacaApiKey: string;
+    alpacaApiSecret: string;
+    finnhubApiKey: string;
 };
 
 type OnboardingData = {
@@ -165,7 +169,7 @@ type FeedItem = {
     id: number;
     time: string;
     text: string;
-    type: 'info' | 'warning' | 'success' | 'neutral' | 'psych';
+    type: 'info' | 'warning' | 'success' | 'neutral' | 'psych' | 'system' | 'alert';
     symbol?: string;
     source?: string;
     iv?: IVData;
@@ -334,6 +338,9 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
         // Merge defaults carefully in case of schema update
         const defaults: AppSettings = {
             showUpgradeCTAText: true,
+            alpacaApiKey: 'PKEEHQLGHOOY53VA3QGVR4AWJ5',
+            alpacaApiSecret: '3RsugNrN4ZkZoUuF7VjfPkAZRKjaZpzX46Mwbt9YCrqE',
+            finnhubApiKey: 'd4ndrnpr01qk2nubav0gd4ndrnpr01qk2nubav10',
             topstepXUserName: '',
             topstepXApiKey: '',
             customInstructions: '',
@@ -358,6 +365,7 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
             // New Account Tracker & Algo Settings
             topstepAccountConnected: false,
             algoActive: false,
+            isAlgoEnabled: false, // Added default
             currentPNL: 0,
             tradingModelsExpanded: false,
             accountTrackerExpanded: false,
@@ -368,7 +376,7 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
             tradeIntervalMinutes: 15,
             selectedInstrument: '/MES',
             contractSize: 1,
-            geminiApiKey: 'AIzaSyBFBWp6_BFo74X3zmHTNOu4gbT6XrQvZGc'
+            claudeApiKey: ''
         };
         const loaded = saved ? JSON.parse(saved) : {};
         return {
@@ -1274,7 +1282,7 @@ const NewsFeed = ({ items, onClear, onRefresh }: { items: FeedItem[], onClear: (
             <div className="p-4 border-b border-[#FFC038]/20 flex items-center justify-between bg-[#050500]">
                 <div className="flex items-center gap-2">
                     <Newspaper className="w-4 h-4 text-[#FFC038]" />
-                    <span className="text-xs font-bold text-[#FFC038] uppercase font-['Roboto'] tracking-widest">Live Wire</span>
+                    <span className="text-xs font-bold text-[#FFC038] uppercase font-['Roboto'] tracking-widest">The Tape</span>
                 </div>
                 <div className="flex items-center gap-2">
                     <IVIndicator change={1.4} />
@@ -1301,10 +1309,10 @@ const NewsFeed = ({ items, onClear, onRefresh }: { items: FeedItem[], onClear: (
                 {items.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full opacity-30 text-[#FFC038]">
                         <Newspaper className="w-12 h-12 mb-2" />
-                        <span className="text-xs font-mono">Waiting for wire data...</span>
+                        <span className="text-xs font-mono">Waiting for tape data...</span>
                     </div>
                 ) : (
-                    <FeedSection title="LIVE WIRE" items={items} onClear={onClear} />
+                    <FeedSection title="THE TAPE" items={items} onClear={onClear} />
                 )}
             </div>
         </div>
@@ -1391,6 +1399,18 @@ Session marked by strong adherence to the plan during the morning drive.Some sli
                         {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
                     </button> */}
                 </div>
+            </div>
+
+            <div className="p-4 border-b border-[#FFC038]/20 flex justify-between items-center bg-[#050500] z-30 relative h-14 shrink-0">
+                {/* {!isCollapsed && ( */}
+                <div className="flex items-center gap-2 text-[#FFC038] animate-in fade-in overflow-hidden whitespace-nowrap">
+                    <Layers className="w-4 h-4 shrink-0" />
+                    <span className="text-xs font-bold uppercase font-['Roboto']">Chat History</span>
+                </div>
+                {/* )} */}
+                <button onClick={() => createThread()} className="text-[#FFC038]/50 hover:text-[#FFC038]">
+                    <Plus className="w-4 h-4" />
+                </button>
             </div>
 
             <div className="p-2 border-b border-[#FFC038]/10">
@@ -1491,12 +1511,16 @@ const ChatInterface = ({
     feedItems,
     erScore,
     erState,
-    tiltCount
+    tiltCount,
+    algoState,
+    activeModels
 }: {
     feedItems: FeedItem[],
     erScore: number,
     erState: EmotionalState,
-    tiltCount: number
+    tiltCount: number,
+    algoState?: AlgoState | null,
+    activeModels?: string[]
 }) => {
     const { user } = useAuth();
     const { settings } = useSettings();
@@ -1544,13 +1568,15 @@ const ChatInterface = ({
                 tickSize: INSTRUMENT_RULES[settings.selectedInstrument].tickSize,
                 pointValue: INSTRUMENT_RULES[settings.selectedInstrument].pointValue,
                 ivRange: INSTRUMENT_RULES[settings.selectedInstrument].ivRange
-            } : undefined
+            } : undefined,
+            algoState,
+            activeModels
         };
 
         const agentSettings = {
             customInstructions: settings.customInstructions,
             drillSergeantMode: settings.alerts.voiceStyle === 'drill',
-            geminiApiKey: settings.geminiApiKey
+            claudeApiKey: settings.claudeApiKey
         };
 
         try {
@@ -1738,6 +1764,11 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
     const [sessionSeconds, setSessionSeconds] = useState(0);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+    // Algo Engine State
+    const [algoState, setAlgoState] = useState<AlgoState | null>(null);
+    const algoEngineRef = useRef<AlgoEngine | null>(null);
+    const [newsItems, setNewsItems] = useState<FeedItem[]>([]); // Local state for news items to feed algo
+
     const formatTime = (totalSeconds: number) => {
         const h = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
         const m = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
@@ -1814,6 +1845,112 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
         };
         connect();
     }, [settings.topstepAccountConnected, settings.topstepXUserName, settings.topstepXApiKey]);
+
+    // Initialize Algo Engine
+    useEffect(() => {
+        algoEngineRef.current = new AlgoEngine(
+            (state) => {
+                setAlgoState(state);
+                // Push thinking to feed if significant
+                if (state.isThinking && Math.random() > 0.9) { // Debounce feed updates
+                    const newItem: FeedItem = {
+                        id: Date.now(),
+                        time: new Date().toLocaleTimeString(),
+                        text: `Algo: ${state.lastThought}`,
+                        type: 'system',
+                        source: 'Algo'
+                    };
+                    setNewsItems(prev => [newItem, ...prev].slice(0, 50));
+                }
+            },
+            (side, reason) => {
+                console.log(`Algo Signal: ${side} - ${reason}`);
+                // Execute Trade
+                if (settings.isAlgoEnabled && settings.topstepXApiKey) {
+                    handlePlaceOrder(side, 1); // Default size 1
+
+                    const newItem: FeedItem = {
+                        id: Date.now(),
+                        time: new Date().toLocaleTimeString(),
+                        text: `⚡ ALGO EXECUTION: ${side.toUpperCase()} ${settings.selectedInstrument} (${reason})`,
+                        type: 'alert',
+                        source: 'Algo'
+                    };
+                    setNewsItems(prev => [newItem, ...prev].slice(0, 50));
+                }
+            }
+        );
+    }, [settings.isAlgoEnabled, settings.topstepXApiKey]);
+
+    // Dynamic Contract Resolution
+    const resolveContract = async (symbol: string): Promise<string> => {
+        if (!settings.topstepXApiKey) return symbol; // Fallback
+
+        try {
+            const contracts = await ProjectXService.getAvailableContracts(settings.topstepXApiKey);
+
+            // Filter for contracts starting with our symbol (e.g. "MNQ")
+            // The 'name' field usually contains the ticker like "MNQZ5" or "MNQZ25"
+            // The 'symbolId' might be "F.US.MNQ"
+
+            // Strategy: Find contracts where symbolId contains our search
+            // e.g. search "MNQ", match "F.US.MNQ"
+
+            const matches = contracts.filter(c =>
+                c.symbolId.includes(symbol) || c.name.startsWith(symbol)
+            );
+
+            if (matches.length === 0) {
+                console.warn(`No contract found for ${symbol}`);
+                return symbol;
+            }
+
+            // Sort by expiration (name usually has year/month code)
+            // For now, pick the first "active" one
+            const active = matches.find(c => c.activeContract);
+            return active ? active.id : matches[0].id;
+
+        } catch (e) {
+            console.error("Contract Resolution Failed:", e);
+            return symbol;
+        }
+    };
+
+    const handlePlaceOrder = async (side: 'buy' | 'sell', size: number = 1) => {
+        if (!settings.topstepXApiKey || !settings.topstepXUserName) {
+            alert("Please configure TopstepX credentials in settings");
+            return;
+        }
+
+        // Resolve full contract ID
+        const contractId = await resolveContract(settings.selectedInstrument);
+        console.log(`Placing order for ${contractId} (${side})`);
+
+        try {
+            const accountId = 465; // TODO: Get from account selection
+            await ProjectXService.placeMarketOrder(
+                settings.topstepXApiKey,
+                accountId,
+                contractId,
+                side,
+                size
+            );
+
+            // Optimistic UI update or wait for SignalR
+            const newItem: FeedItem = {
+                id: Date.now(),
+                time: new Date().toLocaleTimeString(),
+                text: `Order Placed: ${side.toUpperCase()} ${size} ${settings.selectedInstrument} (${contractId})`,
+                type: 'alert',
+                source: 'System'
+            };
+            setNewsItems(prev => [newItem, ...prev].slice(0, 50));
+
+        } catch (e) {
+            console.error("Order Failed:", e);
+            alert("Failed to place order: " + (e as Error).message);
+        }
+    };
 
     // SignalR & PnL Tracking
     useEffect(() => {
@@ -1943,14 +2080,7 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
                 </div>
             </div>
 
-            <div className="p-4 border-b border-[#FFC038]/20 flex justify-between items-center bg-[#050500] z-30 relative h-14 shrink-0">
-                {!isCollapsed && (
-                    <div className="flex items-center gap-2 text-[#FFC038] animate-in fade-in overflow-hidden whitespace-nowrap">
-                        <Layers className="w-4 h-4 shrink-0" />
-                        <span className="text-xs font-bold uppercase font-['Roboto']">Mission Control</span>
-                    </div>
-                )}
-            </div>
+
 
             {isCollapsed ? (
                 <div className="flex-1 flex flex-col items-center py-6 gap-8 animate-in fade-in duration-300">
@@ -2135,20 +2265,18 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
                                     )}
                                 </div>
                             </div>
-                        )}
-                    </div>
 
                     {/* 2. Algo Status Toggle (Standalone) */}
-                    <div className="bg-[#140a00] border border-[#FFC038]/20 rounded-lg p-3 flex justify-between items-center">
-                        <div className="flex items-center gap-2 text-[#FFC038]">
-                            <Brain className="w-4 h-4" />
-                            <span className="text-xs font-bold">Algo Status</span>
+                        <div className="bg-[#140a00] border border-[#FFC038]/20 rounded-lg p-3 flex justify-between items-center">
+                            <div className="flex items-center gap-2 text-[#FFC038]">
+                                <Brain className="w-4 h-4" />
+                                <span className="text-xs font-bold">Algo Status</span>
+                            </div>
+                            <Toggle
+                                checked={settings.algoActive}
+                                onChange={() => updateSettings({ algoActive: !settings.algoActive })}
+                            />
                         </div>
-                        <Toggle
-                            checked={settings.algoActive}
-                            onChange={() => updateSettings({ algoActive: !settings.algoActive })}
-                        />
-                    </div>
 
                     {/* 2.5. Fire Test Trade Button (Shown when enabled in Dev Mode) */}
                     {settings.showFireTestTrade && settings.topstepAccountConnected && settings.selectedAccount && (
@@ -2264,919 +2392,989 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
                                 >
                                     🔥 FIRE
                                 </Button>
-                            </div>
-                        </div>
-                    )}
+                        {/* 2.5. Fire Test Trade Button (Shown when enabled in Dev Mode) */}
+                        {settings.showFireTestTrade && settings.topstepAccountConnected && settings.selectedAccount && (
+                            <div className="bg-[#140a00] border border-[#FF4040]/30 rounded-lg overflow-hidden">
+                                <div className="p-3 flex justify-between items-center bg-[#FF4040]/5">
+                                    <div className="flex items-center gap-2 text-[#FF4040]">
+                                        <Flame className="w-4 h-4" />
+                                        <span className="text-xs font-bold">Fire Test Trade</span>
+                                    </div>
+                                    <Button
+                                        onClick={async () => {
+                                            if (!token) {
+                                                alert('Not authenticated');
+                                                return;
+                                            }
 
-                    {/* 3. PsychAssist */}
-                    <div
-                        onClick={() => { if (isGlobalLocked) return; }}
-                        className={cn(
-                            "group relative overflow-hidden rounded-lg bg-[#140a00] border p-3 transition-all",
-                            psychAssistActive ? "border-[#FFC038] shadow-[0_0_10px_rgba(255,192,56,0.1)]" : "border-[#FFC038]/20 hover:border-[#FFC038]/50"
-                        )}
-                    >
-                        <div className="flex justify-between items-center mb-3">
-                            <div className="flex gap-2 items-center text-[#FFC038]">
-                                <Activity className="w-4 h-4" />
-                                <span className="text-xs font-bold">PsychAssist</span>
-                            </div>
-                            <div className="text-[10px] text-[#FFC038]/50">{psychAssistActive ? 'ACTIVE' : 'IDLE'}</div>
-                        </div>
+                                            try {
+                                                // Fetch available contracts
+                                                const contracts = await ProjectXService.getAvailableContracts(token, true);
 
-                        {!psychAssistActive ? (
-                            <div className="w-full">
-                                <Button onClick={handlePsychClick} variant="primary" className="w-full py-3 text-xs tracking-widest uppercase font-bold text-black border-none shadow-none bg-[#FFC038] hover:bg-[#FFD060]">
-                                    INITIALIZE
-                                </Button>
-                            </div>
-                        ) : (
-                            <div onClick={e => e.stopPropagation()}>
-                                <EmotionalResonanceMonitor
-                                    active={psychAssistActive}
-                                    sessionTime={formatTime(sessionSeconds)}
-                                    onStateUpdate={onPsychStateUpdate}
-                                />
-                                <div className="mt-3">
-                                    <Button onClick={handlePsychClick} variant="secondary" className="w-full text-[10px] py-1">STOP MONITORING</Button>
+                                                // Find NQ contract (E-mini NASDAQ-100)
+                                                const nqContract = contracts.find(c => c.symbolId === 'F.US.ENQ' && c.activeContract);
+
+                                                if (!nqContract) {
+                                                    alert('NQ contract not found');
+                                                    return;
+                                                }
+
+                                                // Confirm
+                                                const confirmed = window.confirm(
+                                                    `🔥 FIRE TEST TRADE\n\n` +
+                                                    `Contract: ${nqContract.name} (${nqContract.description})\n` +
+                                                    `Side: BUY\n` +
+                                                    `Quantity: 1\n` +
+                                                    `Account: ${settings.selectedAccount}\n\n` +
+                                                    `This will place a REAL MARKET ORDER. Continue?`
+                                                );
+
+                                                if (!confirmed) return;
+
+                                                // Place order
+                                                const result = await ProjectXService.placeMarketOrder(
+                                                    {
+                                                        activeThreadId: activeThreadId,
+                                                        instrumentDetails: {
+                                                            symbol: settings.selectedInstrument,
+                                                            name: 'Nasdaq 100', // TODO: Dynamic name
+                                                            tickSize: 0.25,
+                                                            pointValue: 20, // NQ point value
+                                                            ivRange: { low: 12, high: 25 }
+                                                        },
+                                                        algoState: algoState // Pass Algo State
+                                                    });
+
+                                                alert(`✅ Order placed successfully!\n\nOrder ID: ${result.orderId}`);
+                                            } catch (error: any) {
+                                                alert(`❌ Order failed:\n\n${error.message}`);
+                                                console.error('Fire Test Trade Error:', error);
+                                            }
+                                        }}
+                                        variant="danger"
+                                        className="text-[10px] px-4 py-1 h-auto bg-[#FF4040] hover:bg-[#FF6060] text-white border-none"
+                                    >
+                                        🔥 FIRE
+                                    </Button>
                                 </div>
                             </div>
                         )}
-                    </div>
 
-                    {/* 4. Blindspots */}
-                    <LockedCard locked={user.tier === 'pulse' || user.tier === 'free'} mode="cta" title="Blindspots" onUpgrade={() => updateTier('pulse_plus')} className="bg-[#140a00] border border-[#FFC038]/20 p-3">
-                        <div className="flex justify-between items-center mb-3">
-                            <div className="flex gap-2 items-center text-[#FFC038]">
-                                <Eye className="w-4 h-4" />
-                                <span className="text-xs font-bold">Blindspots</span>
-                            </div>
-                        </div>
-                        <div className="space-y-3 mt-2">
-                            {['Impulse Entry', 'Revenge Trading', 'Overleveraging'].map((b, i) => (
-                                <div key={i} className="text-[10px] text-[#FFC038] font-bold uppercase tracking-wider pl-1 font-['Roboto'] flex items-center gap-2">
-                                    <span className="w-1 h-1 bg-[#FFC038] rounded-full"></span>
-                                    {b}
-                                </div>
-                            ))}
-                        </div>
-                    </LockedCard>
-
-                    {/* 5. Trading Models (Expandable) */}
-                    <LockedCard locked={user.tier === 'pulse' || user.tier === 'free'} mode="cta" title="Trading Models" onUpgrade={() => updateTier('pulse_plus')} className="bg-[#140a00] border border-[#FFC038]/20 overflow-hidden">
+                        {/* 3. PsychAssist */}
                         <div
-                            className="p-3 flex items-center justify-between cursor-pointer hover:bg-[#FFC038]/5"
-                            onClick={() => updateSettings({ tradingModelsExpanded: !settings.tradingModelsExpanded })}
+                            onClick={() => { if (isGlobalLocked) return; }}
+                            className={cn(
+                                "group relative overflow-hidden rounded-lg bg-[#140a00] border p-3 transition-all",
+                                psychAssistActive ? "border-[#FFC038] shadow-[0_0_10px_rgba(255,192,56,0.1)]" : "border-[#FFC038]/20 hover:border-[#FFC038]/50"
+                            )}
                         >
-                            <div className="flex gap-2 items-center text-[#FFC038]">
-                                <Target className="w-4 h-4" />
-                                <span className="text-xs font-bold">Trading Models</span>
+                            <div className="flex justify-between items-center mb-3">
+                                <div className="flex gap-2 items-center text-[#FFC038]">
+                                    <Activity className="w-4 h-4" />
+                                    <span className="text-xs font-bold">PsychAssist</span>
+                                </div>
+                                <div className="text-[10px] text-[#FFC038]/50">{psychAssistActive ? 'ACTIVE' : 'IDLE'}</div>
                             </div>
-                            {settings.tradingModelsExpanded ? <ChevronUp className="w-3 h-3 text-[#FFC038]/50" /> : <ChevronDown className="w-3 h-3 text-[#FFC038]/50" />}
+
+                            {!psychAssistActive ? (
+                                <div className="w-full">
+                                    <Button onClick={handlePsychClick} variant="primary" className="w-full py-3 text-xs tracking-widest uppercase font-bold text-black border-none shadow-none bg-[#FFC038] hover:bg-[#FFD060]">
+                                        INITIALIZE
+                                    </Button>
+                                </div>
+                            ) : (
+                                <div onClick={e => e.stopPropagation()}>
+                                    <EmotionalResonanceMonitor
+                                        active={psychAssistActive}
+                                        sessionTime={formatTime(sessionSeconds)}
+                                        onStateUpdate={onPsychStateUpdate}
+                                    />
+                                    <div className="mt-3">
+                                        <Button onClick={handlePsychClick} variant="secondary" className="w-full text-[10px] py-1">STOP MONITORING</Button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
-                        {settings.tradingModelsExpanded && (
-                            <div className="space-y-2 p-3 pt-0 animate-in slide-in-from-top-2 border-t border-[#FFC038]/10 mt-1">
-                                {TRADING_MODELS_CONFIG.map(model => (
-                                    <div key={model.key} className="bg-[#0a0a00] p-2 rounded border border-[#FFC038]/10 hover:border-[#FFC038]/30 transition-colors">
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="text-xs text-[#FFC038] font-medium">{model.name}</span>
-                                            <Toggle
-                                                checked={!!settings.tradingModels[model.key]}
-                                                onChange={() => updateSettings({
-                                                    tradingModels: { ...settings.tradingModels, [model.key]: !settings.tradingModels[model.key] }
-                                                })}
-                                            />
-                                        </div>
-                                        <div className="text-[9px] text-[#FFC038]/40 font-mono">{model.time}</div>
+                        {/* 4. Blindspots */}
+                        <LockedCard locked={user.tier === 'pulse' || user.tier === 'free'} mode="cta" title="Blindspots" onUpgrade={() => updateTier('pulse_plus')} className="bg-[#140a00] border border-[#FFC038]/20 p-3">
+                            <div className="flex justify-between items-center mb-3">
+                                <div className="flex gap-2 items-center text-[#FFC038]">
+                                    <Eye className="w-4 h-4" />
+                                    <span className="text-xs font-bold">Blindspots</span>
+                                </div>
+                            </div>
+                            <div className="space-y-3 mt-2">
+                                {['Impulse Entry', 'Revenge Trading', 'Overleveraging'].map((b, i) => (
+                                    <div key={i} className="text-[10px] text-[#FFC038] font-bold uppercase tracking-wider pl-1 font-['Roboto'] flex items-center gap-2">
+                                        <span className="w-1 h-1 bg-[#FFC038] rounded-full"></span>
+                                        {b}
                                     </div>
                                 ))}
                             </div>
-                        )}
-                    </LockedCard>
+                        </LockedCard>
 
-                    {/* 6. Thread History Widget */}
-                    <div className="h-64 border border-[#FFC038]/20 rounded-lg overflow-hidden bg-[#140a00]">
-                        <ThreadHistory />
+                        {/* 5. Trading Models (Expandable) */}
+                        <LockedCard locked={user.tier === 'pulse' || user.tier === 'free'} mode="cta" title="Trading Models" onUpgrade={() => updateTier('pulse_plus')} className="bg-[#140a00] border border-[#FFC038]/20 overflow-hidden">
+                            <div
+                                className="p-3 flex items-center justify-between cursor-pointer hover:bg-[#FFC038]/5"
+                                onClick={() => updateSettings({ tradingModelsExpanded: !settings.tradingModelsExpanded })}
+                            >
+                                <div className="flex gap-2 items-center text-[#FFC038]">
+                                    <Target className="w-4 h-4" />
+                                    <span className="text-xs font-bold">Trading Models</span>
+                                </div>
+                                {settings.tradingModelsExpanded ? <ChevronUp className="w-3 h-3 text-[#FFC038]/50" /> : <ChevronDown className="w-3 h-3 text-[#FFC038]/50" />}
+                            </div>
+
+                            {settings.tradingModelsExpanded && (
+                                <div className="space-y-2 p-3 pt-0 animate-in slide-in-from-top-2 border-t border-[#FFC038]/10 mt-1">
+                                    {TRADING_MODELS_CONFIG.map(model => (
+                                        <div key={model.key} className="bg-[#0a0a00] p-2 rounded border border-[#FFC038]/10 hover:border-[#FFC038]/30 transition-colors">
+                                            <div className="flex items-center justify-between mb-1">
+                                                <span className="text-xs text-[#FFC038] font-medium">{model.name}</span>
+                                                <Toggle
+                                                    checked={!!settings.tradingModels[model.key]}
+                                                    onChange={() => updateSettings({
+                                                        tradingModels: { ...settings.tradingModels, [model.key]: !settings.tradingModels[model.key] }
+                                                    })}
+                                                />
+                                            </div>
+                                            <div className="text-[9px] text-[#FFC038]/40 font-mono">{model.time}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </LockedCard>
+
+                        {/* 6. Thread History Widget */}
+                        <div className="h-64 border border-[#FFC038]/20 rounded-lg overflow-hidden bg-[#140a00]">
+                            <ThreadHistory />
+                        </div>
+
                     </div>
-
-                </div>
             )}
 
-            {
-                isCollapsed && (
-                    <div className="flex-1 flex flex-col items-center py-4 gap-4">
-                        <Layers className="w-5 h-5 text-[#FFC038]/50" />
-                        <div className="flex-1 w-full flex items-center justify-center">
-                            <span className="text-[#FFC038]/50 text-[10px] uppercase font-bold tracking-widest rotate-180 whitespace-nowrap" style={{ writingMode: 'vertical-rl' }}>
-                                Mission Control
-                            </span>
-                        </div>
-                    </div>
-                )
-            }
+                    {
+                        isCollapsed && (
+                            <div className="flex-1 flex flex-col items-center py-4 gap-4">
+                                <Layers className="w-5 h-5 text-[#FFC038]/50" />
+                                <div className="flex-1 w-full flex items-center justify-center">
+                                    <span className="text-[#FFC038]/50 text-[10px] uppercase font-bold tracking-widest rotate-180 whitespace-nowrap" style={{ writingMode: 'vertical-rl' }}>
+                                        Mission Control
+                                    </span>
+                                </div>
+                            </div>
+                        )
+                    }
 
-            {
-                !isCollapsed && isGlobalLocked && (
-                    <div className="absolute inset-0 z-20 bg-black/60 backdrop-blur-md flex flex-col items-center justify-center text-center p-6 animate-in fade-in duration-1000">
-                        <Lock className="w-12 h-12 text-[#FFC038] mb-4" />
-                        <h2 className="text-xl font-bold text-[#FFC038] font-['Roboto'] tracking-widest mb-2">MISSION CONTROL LOCKED</h2>
-                        <p className="text-[#FFC038]/60 text-xs font-mono mb-6 max-w-[200px]">Advanced telemetry and psychological monitoring require an active uplink.</p>
-                        <Button onClick={() => updateTier('pulse')} variant="primary">INITIALIZE PULSE</Button>
-                    </div>
-                )
-            }
-        </div >
-    );
+                    {
+                        !isCollapsed && isGlobalLocked && (
+                            <div className="absolute inset-0 z-20 bg-black/60 backdrop-blur-md flex flex-col items-center justify-center text-center p-6 animate-in fade-in duration-1000">
+                                <Lock className="w-12 h-12 text-[#FFC038] mb-4" />
+                                <p className="text-[#FFC038]/60 text-xs font-mono mb-6 max-w-[200px]">Advanced telemetry and psychological monitoring require an active uplink.</p>
+                                <Button onClick={() => updateTier('pulse')} variant="primary">INITIALIZE PULSE</Button>
+                            </div>
+                        )
+                    }
+                </div >
+            );
 };
 
-// Settings Modal
-const SettingsModal = ({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: () => void; onSave?: () => void }) => {
-    const { settings, updateSettings } = useSettings();
-    const [activeTab, setActiveTab] = useState<'psych' | 'trading' | 'api' | 'dev'>('psych');
-    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+            // Settings Modal
+            const SettingsModal = ({isOpen, onClose, onSave}: {isOpen: boolean; onClose: () => void; onSave?: () => void }) => {
+    const {settings, updateSettings} = useSettings();
+            const [activeTab, setActiveTab] = useState<'psych' | 'trading' | 'api' | 'dev'>('psych');
+            const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
     const handleSave = () => {
-        setSaveStatus('saving');
-        if (onSave) onSave();
+                setSaveStatus('saving');
+            if (onSave) onSave();
         setTimeout(() => setSaveStatus('saved'), 500);
         setTimeout(() => setSaveStatus('idle'), 2000);
     };
 
     // Helper to preview tone
     const previewTone = () => {
-        playTone(523.25, settings.alerts.toneType, 0.5, 0.2);
+                playTone(523.25, settings.alerts.toneType, 0.5, 0.2);
     };
 
-    const tabs = [
-        { id: 'psych' as const, label: 'PsychAssist', icon: Activity },
-        { id: 'trading' as const, label: 'Trading', icon: BarChart3 },
-        { id: 'api' as const, label: 'API', icon: LinkIcon },
-        { id: 'dev' as const, label: 'Developer', icon: Terminal }
-    ];
+            const tabs = [
+            {id: 'psych' as const, label: 'PsychAssist', icon: Activity },
+            {id: 'trading' as const, label: 'Trading', icon: BarChart3 },
+            {id: 'api' as const, label: 'API', icon: LinkIcon },
+            {id: 'dev' as const, label: 'Developer', icon: Terminal }
+            ];
 
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} className="w-full max-w-4xl">
-            <div className="flex h-[600px]">
-                {/* Left Sidebar Navigation */}
-                <div className="w-56 bg-[#0a0a00] border-r border-[#FFC038]/20 flex flex-col shrink-0">
-                    <div className="p-4 border-b border-[#FFC038]/20">
-                        <h2 className="text-base font-bold text-[#FFC038] font-['Roboto'] flex items-center gap-2">
-                            <Settings className="w-5 h-5" /> Settings
-                        </h2>
+            return (
+            <Modal isOpen={isOpen} onClose={onClose} className="w-full max-w-4xl">
+                <div className="flex h-[600px]">
+                    {/* Left Sidebar Navigation */}
+                    <div className="w-56 bg-[#0a0a00] border-r border-[#FFC038]/20 flex flex-col shrink-0">
+                        <div className="p-4 border-b border-[#FFC038]/20">
+                            <h2 className="text-base font-bold text-[#FFC038] font-['Roboto'] flex items-center gap-2">
+                                <Settings className="w-5 h-5" /> Settings
+                            </h2>
+                        </div>
+                        <nav className="flex-1 p-2">
+                            {tabs.map(tab => {
+                                const Icon = tab.icon;
+                                return (
+                                    <button
+                                        key={tab.id}
+                                        onClick={() => setActiveTab(tab.id)}
+                                        className={cn(
+                                            "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all mb-1",
+                                            activeTab === tab.id
+                                                ? "bg-[#FFC038]/10 text-[#FFC038] border border-[#FFC038]/30"
+                                                : "text-[#FFC038]/60 hover:bg-[#FFC038]/5 hover:text-[#FFC038]"
+                                        )}
+                                    >
+                                        <Icon className="w-4 h-4 shrink-0" />
+                                        <span className="text-sm font-medium">{tab.label}</span>
+                                    </button>
+                                );
+                            })}
+                        </nav>
                     </div>
-                    <nav className="flex-1 p-2">
-                        {tabs.map(tab => {
-                            const Icon = tab.icon;
-                            return (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => setActiveTab(tab.id)}
-                                    className={cn(
-                                        "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all mb-1",
-                                        activeTab === tab.id
-                                            ? "bg-[#FFC038]/10 text-[#FFC038] border border-[#FFC038]/30"
-                                            : "text-[#FFC038]/60 hover:bg-[#FFC038]/5 hover:text-[#FFC038]"
-                                    )}
-                                >
-                                    <Icon className="w-4 h-4 shrink-0" />
-                                    <span className="text-sm font-medium">{tab.label}</span>
-                                </button>
-                            );
-                        })}
-                    </nav>
-                </div>
 
-                {/* Right Content Area */}
-                <div className="flex-1 flex flex-col">
-                    <div className="flex-1 overflow-y-auto p-6">
-                        {/* PsychAssist Tab (Interface + Alerts) */}
-                        {activeTab === 'psych' && (
-                            <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
-                                <div>
-                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">PsychAssist Configuration</h3>
-
-                                    <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10 mb-4">
-                                        <span className="text-sm text-[#FFC038]">Anti-Anxiety Mode</span>
-                                        <Toggle
-                                            checked={!settings.showUpgradeCTAText}
-                                            onChange={() => updateSettings({ showUpgradeCTAText: !settings.showUpgradeCTAText })}
-                                        />
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-4 mb-6">
-                                        <div className="flex flex-col gap-2">
-                                            <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Max Trades / Interval</label>
-                                            <input
-                                                type="number"
-                                                value={settings.maxTradesPerInterval}
-                                                onChange={(e) => updateSettings({ maxTradesPerInterval: Number(e.target.value) })}
-                                                className="bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
-                                            />
-                                        </div>
-                                        <div className="flex flex-col gap-2">
-                                            <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Interval Duration</label>
-                                            <div className="relative">
-                                                <select
-                                                    value={settings.tradeIntervalMinutes}
-                                                    onChange={(e) => updateSettings({ tradeIntervalMinutes: Number(e.target.value) })}
-                                                    className="w-full bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono appearance-none"
-                                                >
-                                                    <option value={5}>5 Minutes</option>
-                                                    <option value={10}>10 Minutes</option>
-                                                    <option value={15}>15 Minutes</option>
-                                                    <option value={30}>30 Minutes</option>
-                                                    <option value={60}>60 Minutes</option>
-                                                </select>
-                                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#FFC038]/50 pointer-events-none" />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <h4 className="text-sm font-bold text-[#FFC038]/70 uppercase mb-3 border-t border-[#FFC038]/20 pt-4">Audio & Alerts</h4>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                                        <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                            <span className="text-xs text-[#FFC038]">Emotional Alerts</span>
-                                            <Toggle
-                                                checked={settings.alerts.enabled}
-                                                onChange={() => updateSettings({ alerts: { ...settings.alerts, enabled: !settings.alerts.enabled } })}
-                                            />
-                                        </div>
-                                        <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                            <span className="text-xs text-[#FFC038]">Voice Alerts</span>
-                                            <Toggle
-                                                checked={settings.alerts.voiceEnabled}
-                                                onChange={() => updateSettings({ alerts: { ...settings.alerts, voiceEnabled: !settings.alerts.voiceEnabled } })}
-                                            />
-                                        </div>
-                                        <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                            <span className="text-xs text-[#FFC038]">Tilt Escalation</span>
-                                            <Toggle
-                                                checked={settings.alerts.escalationEnabled}
-                                                onChange={() => updateSettings({ alerts: { ...settings.alerts, escalationEnabled: !settings.alerts.escalationEnabled } })}
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="p-3 bg-[#140a00] rounded border border-[#FFC038]/10 mb-4">
-                                        <label className="text-xs text-[#FFC038]/70 block mb-2">Voice Alert Style</label>
-                                        <div className="flex gap-2">
-                                            {['calm', 'motivational', 'drill'].map((style) => (
-                                                <button
-                                                    key={style}
-                                                    onClick={() => updateSettings({ alerts: { ...settings.alerts, voiceStyle: style as any } })}
-                                                    className={cn(
-                                                        "flex-1 py-2 text-xs border rounded transition-all uppercase font-bold",
-                                                        settings.alerts.voiceStyle === style
-                                                            ? "bg-[#FFC038] text-black border-[#FFC038]"
-                                                            : "bg-black text-[#FFC038]/50 border-[#FFC038]/20 hover:border-[#FFC038]"
-                                                    )}
-                                                >
-                                                    {style === 'drill' ? 'Drill Sergeant' : style}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    <div className="p-3 bg-[#140a00] rounded border border-[#FFC038]/10 flex items-center justify-between">
-                                        <div>
-                                            <label className="text-xs text-[#FFC038]/70 block mb-1">Alert Tone</label>
-                                            <select
-                                                value={settings.alerts.toneType}
-                                                onChange={(e) => updateSettings({ alerts: { ...settings.alerts, toneType: e.target.value as any } })}
-                                                className="bg-black text-[#FFC038] text-xs border border-[#FFC038]/30 rounded p-1 outline-none"
-                                            >
-                                                <option value="sine">Sine Wave (Soft)</option>
-                                                <option value="triangle">Triangle (Bright)</option>
-                                                <option value="square">Square (8-bit)</option>
-                                                <option value="sawtooth">Sawtooth (Sharp)</option>
-                                            </select>
-                                        </div>
-                                        <Button onClick={previewTone} variant="secondary" className="text-xs h-8">
-                                            <Play className="w-3 h-3" /> Preview
-                                        </Button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Trading Tab (Instrument + Risk + Models) */}
-                        {activeTab === 'trading' && (
-                            <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
-                                <div>
-                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">Trading Configuration</h3>
-
-                                    {/* Instrument Chooser */}
-                                    <div className="mb-6">
-                                        <label className="text-xs text-[#FFC038]/70 uppercase font-bold block mb-2">Active Instrument</label>
-                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                            {Object.entries(INSTRUMENT_RULES).map(([symbol, details]) => (
-                                                <button
-                                                    key={symbol}
-                                                    onClick={() => updateSettings({ selectedInstrument: symbol })}
-                                                    className={cn(
-                                                        "p-3 rounded border text-left transition-all",
-                                                        settings.selectedInstrument === symbol
-                                                            ? "bg-[#FFC038] text-black border-[#FFC038]"
-                                                            : "bg-[#140a00] text-[#FFC038]/60 border-[#FFC038]/20 hover:border-[#FFC038]/50"
-                                                    )}
-                                                >
-                                                    <div className="font-bold text-sm">{symbol}</div>
-                                                    <div className="text-[9px] opacity-70 truncate">{details.name} ({details.contract})</div>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* Risk Settings */}
-                                    <div className="mb-6 p-4 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                        <h4 className="text-sm font-bold text-[#FFC038] uppercase mb-3 flex items-center gap-2">
-                                            <Shield className="w-4 h-4" /> Risk Parameters
-                                        </h4>
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                            <div className="flex flex-col gap-2">
-                                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Contract Size</label>
-                                                <input
-                                                    type="number"
-                                                    value={settings.contractSize}
-                                                    onChange={(e) => updateSettings({ contractSize: Number(e.target.value) })}
-                                                    className="bg-black border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
-                                                />
-                                            </div>
-                                            <div className="flex flex-col gap-2">
-                                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Daily Profit Target ($)</label>
-                                                <input
-                                                    type="number"
-                                                    value={settings.dailyProfitTarget}
-                                                    onChange={(e) => updateSettings({ dailyProfitTarget: Number(e.target.value) })}
-                                                    className="bg-black border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
-                                                />
-                                            </div>
-                                            <div className="flex flex-col gap-2">
-                                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Daily Loss Limit ($)</label>
-                                                <input
-                                                    type="number"
-                                                    value={settings.dailyLossLimit}
-                                                    onChange={(e) => updateSettings({ dailyLossLimit: Number(e.target.value) })}
-                                                    className="bg-black border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Trading Models */}
+                    {/* Right Content Area */}
+                    <div className="flex-1 flex flex-col">
+                        <div className="flex-1 overflow-y-auto p-6">
+                            {/* PsychAssist Tab (Interface + Alerts) */}
+                            {activeTab === 'psych' && (
+                                <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
                                     <div>
-                                        <h4 className="text-sm font-bold text-[#FFC038] uppercase mb-3 flex items-center gap-2">
-                                            <Brain className="w-4 h-4" /> Trading Models
-                                        </h4>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                            {Object.entries(settings.tradingModels).map(([key, val]) => (
-                                                <div key={key} className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                                    <span className="text-xs text-[#FFC038] capitalize">{key.replace(/([A-Z])/g, ' $1').replace('Twenty Two', '22')}</span>
-                                                    <Toggle
-                                                        checked={val as boolean}
-                                                        onChange={() => updateSettings({
-                                                            tradingModels: { ...settings.tradingModels, [key]: !val }
-                                                        })}
-                                                    />
+                                        <h3 className="text-lg font-bold text-[#FFC038] mb-4">PsychAssist Configuration</h3>
+
+                                        <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10 mb-4">
+                                            <span className="text-sm text-[#FFC038]">Anti-Anxiety Mode</span>
+                                            <Toggle
+                                                checked={!settings.showUpgradeCTAText}
+                                                onChange={() => updateSettings({ showUpgradeCTAText: !settings.showUpgradeCTAText })}
+                                            />
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-4 mb-6">
+                                            <div className="flex flex-col gap-2">
+                                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Max Trades / Interval</label>
+                                                <input
+                                                    type="number"
+                                                    value={settings.maxTradesPerInterval}
+                                                    onChange={(e) => updateSettings({ maxTradesPerInterval: Number(e.target.value) })}
+                                                    className="bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
+                                                />
+                                            </div>
+                                            <div className="flex flex-col gap-2">
+                                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Interval Duration</label>
+                                                <div className="relative">
+                                                    <select
+                                                        value={settings.tradeIntervalMinutes}
+                                                        onChange={(e) => updateSettings({ tradeIntervalMinutes: Number(e.target.value) })}
+                                                        className="w-full bg-[#140a00] border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono appearance-none"
+                                                    >
+                                                        <option value={5}>5 Minutes</option>
+                                                        <option value={10}>10 Minutes</option>
+                                                        <option value={15}>15 Minutes</option>
+                                                        <option value={30}>30 Minutes</option>
+                                                        <option value={60}>60 Minutes</option>
+                                                    </select>
+                                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#FFC038]/50 pointer-events-none" />
                                                 </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* API Tab */}
-                        {activeTab === 'api' && (
-                            <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
-                                <div>
-                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">API Configuration</h3>
-
-                                    <div className="space-y-4">
-                                        <div>
-                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">Gemini API Key (Required for AI Agent)</label>
-                                            <input
-                                                type="password"
-                                                value={settings.geminiApiKey}
-                                                onChange={e => updateSettings({ geminiApiKey: e.target.value })}
-                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
-                                                placeholder="Enter your Gemini API key..."
-                                            />
+                                            </div>
                                         </div>
 
-                                        <div className="border-t border-[#FFC038]/10 my-4"></div>
+                                        <h4 className="text-sm font-bold text-[#FFC038]/70 uppercase mb-3 border-t border-[#FFC038]/20 pt-4">Audio & Alerts</h4>
 
-                                        <div>
-                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">TopstepX Username</label>
-                                            <input
-                                                type="text"
-                                                value={settings.topstepXUserName}
-                                                onChange={e => updateSettings({ topstepXUserName: e.target.value })}
-                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] text-[#FFC038]/70 mb-1">TopstepX API Key</label>
-                                            <input
-                                                type="password"
-                                                value={settings.topstepXApiKey}
-                                                onChange={e => updateSettings({ topstepXApiKey: e.target.value })}
-                                                className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
-                                            />
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                                            <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                                <span className="text-xs text-[#FFC038]">Emotional Alerts</span>
+                                                <Toggle
+                                                    checked={settings.alerts.enabled}
+                                                    onChange={() => updateSettings({ alerts: { ...settings.alerts, enabled: !settings.alerts.enabled } })}
+                                                />
+                                            </div>
+                                            <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                                <span className="text-xs text-[#FFC038]">Voice Alerts</span>
+                                                <Toggle
+                                                    checked={settings.alerts.voiceEnabled}
+                                                    onChange={() => updateSettings({ alerts: { ...settings.alerts, voiceEnabled: !settings.alerts.voiceEnabled } })}
+                                                />
+                                            </div>
+                                            <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                                <span className="text-xs text-[#FFC038]">Tilt Escalation</span>
+                                                <Toggle
+                                                    checked={settings.alerts.escalationEnabled}
+                                                    onChange={() => updateSettings({ alerts: { ...settings.alerts, escalationEnabled: !settings.alerts.escalationEnabled } })}
+                                                />
+                                            </div>
                                         </div>
 
-                                        <div className="flex justify-end pt-4">
-                                            <Button
-                                                onClick={handleSave}
-                                                variant="primary"
-                                                className={cn("w-full md:w-auto transition-all", saveStatus === 'saved' ? "bg-emerald-500 border-emerald-500 text-black" : "")}
-                                            >
-                                                {saveStatus === 'saving' ? (
-                                                    <><Loader2 className="w-3 h-3 animate-spin mr-2" /> Saving...</>
-                                                ) : saveStatus === 'saved' ? (
-                                                    <><Check className="w-3 h-3 mr-2" /> Changes Saved</>
-                                                ) : (
-                                                    <><Save className="w-3 h-3 mr-2" /> Save Changes</>
-                                                )}
+                                        <div className="p-3 bg-[#140a00] rounded border border-[#FFC038]/10 mb-4">
+                                            <label className="text-xs text-[#FFC038]/70 block mb-2">Voice Alert Style</label>
+                                            <div className="flex gap-2">
+                                                {['calm', 'motivational', 'drill'].map((style) => (
+                                                    <button
+                                                        key={style}
+                                                        onClick={() => updateSettings({ alerts: { ...settings.alerts, voiceStyle: style as any } })}
+                                                        className={cn(
+                                                            "flex-1 py-2 text-xs border rounded transition-all uppercase font-bold",
+                                                            settings.alerts.voiceStyle === style
+                                                                ? "bg-[#FFC038] text-black border-[#FFC038]"
+                                                                : "bg-black text-[#FFC038]/50 border-[#FFC038]/20 hover:border-[#FFC038]"
+                                                        )}
+                                                    >
+                                                        {style === 'drill' ? 'Drill Sergeant' : style}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="p-3 bg-[#140a00] rounded border border-[#FFC038]/10 flex items-center justify-between">
+                                            <div>
+                                                <label className="text-xs text-[#FFC038]/70 block mb-1">Alert Tone</label>
+                                                <select
+                                                    value={settings.alerts.toneType}
+                                                    onChange={(e) => updateSettings({ alerts: { ...settings.alerts, toneType: e.target.value as any } })}
+                                                    className="bg-black text-[#FFC038] text-xs border border-[#FFC038]/30 rounded p-1 outline-none"
+                                                >
+                                                    <option value="sine">Sine Wave (Soft)</option>
+                                                    <option value="triangle">Triangle (Bright)</option>
+                                                    <option value="square">Square (8-bit)</option>
+                                                    <option value="sawtooth">Sawtooth (Sharp)</option>
+                                                </select>
+                                            </div>
+                                            <Button onClick={previewTone} variant="secondary" className="text-xs h-8">
+                                                <Play className="w-3 h-3" /> Preview
                                             </Button>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
 
-                        {/* Developer Mode Tab */}
-                        {activeTab === 'dev' && (
-                            <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
-                                <div>
-                                    <h3 className="text-lg font-bold text-[#FFC038] mb-4">Developer Mode</h3>
+                            {/* Trading Tab (Instrument + Risk + Models) */}
+                            {activeTab === 'trading' && (
+                                <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
+                                    <div>
+                                        <h3 className="text-lg font-bold text-[#FFC038] mb-4">Trading Configuration</h3>
 
-                                    <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10 mb-3">
-                                        <span className="text-sm text-[#FFC038]">Dev Mode</span>
-                                        <Toggle
-                                            checked={settings.devMode}
-                                            onChange={() => updateSettings({ devMode: !settings.devMode })}
-                                        />
-                                    </div>
-
-                                    {settings.devMode && (
-                                        <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
-                                            <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                                <span className="text-xs text-[#FFC038]">Show Fire Test Trade</span>
-                                                <Toggle
-                                                    checked={settings.showFireTestTrade}
-                                                    onChange={() => updateSettings({ showFireTestTrade: !settings.showFireTestTrade })}
-                                                />
+                                        {/* Instrument Chooser */}
+                                        <div className="mb-6">
+                                            <label className="text-xs text-[#FFC038]/70 uppercase font-bold block mb-2">Active Instrument</label>
+                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                                {Object.entries(INSTRUMENT_RULES).map(([symbol, details]) => (
+                                                    <button
+                                                        key={symbol}
+                                                        onClick={() => updateSettings({ selectedInstrument: symbol })}
+                                                        className={cn(
+                                                            "p-3 rounded border text-left transition-all",
+                                                            settings.selectedInstrument === symbol
+                                                                ? "bg-[#FFC038] text-black border-[#FFC038]"
+                                                                : "bg-[#140a00] text-[#FFC038]/60 border-[#FFC038]/20 hover:border-[#FFC038]/50"
+                                                        )}
+                                                    >
+                                                        <div className="font-bold text-sm">{symbol}</div>
+                                                        <div className="text-[9px] opacity-70 truncate">{details.name} ({details.contract})</div>
+                                                    </button>
+                                                ))}
                                             </div>
+                                        </div>
 
-                                            <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
-                                                <div className="flex items-center gap-2">
-                                                    <Terminal className="w-3 h-3 text-[#FFC038]" />
-                                                    <span className="text-xs text-[#FFC038]">Mock Data</span>
+                                        {/* Risk Settings */}
+                                        <div className="mb-6 p-4 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                            <h4 className="text-sm font-bold text-[#FFC038] uppercase mb-3 flex items-center gap-2">
+                                                <Shield className="w-4 h-4" /> Risk Parameters
+                                            </h4>
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                <div className="flex flex-col gap-2">
+                                                    <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Contract Size</label>
+                                                    <input
+                                                        type="number"
+                                                        value={settings.contractSize}
+                                                        onChange={(e) => updateSettings({ contractSize: Number(e.target.value) })}
+                                                        className="bg-black border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
+                                                    />
                                                 </div>
-                                                <Toggle
-                                                    checked={settings.mockDataEnabled}
-                                                    onChange={() => updateSettings({ mockDataEnabled: !settings.mockDataEnabled })}
+                                                <div className="flex flex-col gap-2">
+                                                    <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Daily Profit Target ($)</label>
+                                                    <input
+                                                        type="number"
+                                                        value={settings.dailyProfitTarget}
+                                                        onChange={(e) => updateSettings({ dailyProfitTarget: Number(e.target.value) })}
+                                                        className="bg-black border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
+                                                    />
+                                                </div>
+                                                <div className="flex flex-col gap-2">
+                                                    <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Daily Loss Limit ($)</label>
+                                                    <input
+                                                        type="number"
+                                                        value={settings.dailyLossLimit}
+                                                        onChange={(e) => updateSettings({ dailyLossLimit: Number(e.target.value) })}
+                                                        className="bg-black border border-[#FFC038]/20 rounded px-3 py-2 text-sm text-[#FFC038] focus:border-[#FFC038] outline-none font-mono"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Trading Models */}
+                                        <div>
+                                            <h4 className="text-sm font-bold text-[#FFC038] uppercase mb-3 flex items-center gap-2">
+                                                <Brain className="w-4 h-4" /> Trading Models
+                                            </h4>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                {Object.entries(settings.tradingModels).map(([key, val]) => (
+                                                    <div key={key} className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                                        <span className="text-xs text-[#FFC038] capitalize">{key.replace(/([A-Z])/g, ' $1').replace('Twenty Two', '22')}</span>
+                                                        <Toggle
+                                                            checked={val as boolean}
+                                                            onChange={() => updateSettings({
+                                                                tradingModels: { ...settings.tradingModels, [key]: !val }
+                                                            })}
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* API Tab */}
+                            {activeTab === 'api' && (
+                                <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
+                                    <div>
+                                        <h3 className="text-lg font-bold text-[#FFC038] mb-4">API Configuration</h3>
+
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="block text-[10px] text-[#FFC038]/70 mb-1">Claude API Key (AI Agent)</label>
+                                                <input
+                                                    type="password"
+                                                    value={settings.claudeApiKey}
+                                                    onChange={e => updateSettings({ claudeApiKey: e.target.value })}
+                                                    className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                                    placeholder="Enter Anthropic Claude API Key"
                                                 />
                                             </div>
+
+                                            <div className="border-t border-[#FFC038]/10 my-4"></div>
+
+                                            <div>
+                                                <label className="block text-[10px] text-[#FFC038]/70 mb-1">Alpaca API Key</label>
+                                                <input
+                                                    type="password"
+                                                    value={settings.alpacaApiKey}
+                                                    onChange={e => updateSettings({ alpacaApiKey: e.target.value })}
+                                                    className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                                    placeholder="PK..."
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] text-[#FFC038]/70 mb-1">Alpaca API Secret</label>
+                                                <input
+                                                    type="password"
+                                                    value={settings.alpacaApiSecret}
+                                                    onChange={e => updateSettings({ alpacaApiSecret: e.target.value })}
+                                                    className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] text-[#FFC038]/70 mb-1">Finnhub API Key</label>
+                                                <input
+                                                    type="password"
+                                                    value={settings.finnhubApiKey}
+                                                    onChange={e => updateSettings({ finnhubApiKey: e.target.value })}
+                                                    className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                                />
+                                            </div>
+
+                                            <div className="border-t border-[#FFC038]/10 my-4"></div>
+
+                                            <div>
+                                                <label className="block text-[10px] text-[#FFC038]/70 mb-1">TopstepX Username</label>
+                                                <input
+                                                    type="text"
+                                                    value={settings.topstepXUserName}
+                                                    onChange={e => updateSettings({ topstepXUserName: e.target.value })}
+                                                    className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] text-[#FFC038]/70 mb-1">TopstepX API Key</label>
+                                                <input
+                                                    type="password"
+                                                    value={settings.topstepXApiKey}
+                                                    onChange={e => updateSettings({ topstepXApiKey: e.target.value })}
+                                                    className="w-full bg-black border border-[#FFC038]/30 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none"
+                                                />
+                                            </div>
+
+                                            <div className="flex justify-end pt-4">
+                                                <Button
+                                                    onClick={handleSave}
+                                                    variant="primary"
+                                                    className={cn("w-full md:w-auto transition-all", saveStatus === 'saved' ? "bg-emerald-500 border-emerald-500 text-black" : "")}
+                                                >
+                                                    {saveStatus === 'saving' ? (
+                                                        <><Loader2 className="w-3 h-3 animate-spin mr-2" /> Saving...</>
+                                                    ) : saveStatus === 'saved' ? (
+                                                        <><Check className="w-3 h-3 mr-2" /> Changes Saved</>
+                                                    ) : (
+                                                        <><Save className="w-3 h-3 mr-2" /> Save Changes</>
+                                                    )}
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Developer Mode Tab */}
+                            {activeTab === 'dev' && (
+                                <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
+                                    <div>
+                                        <h3 className="text-lg font-bold text-[#FFC038] mb-4">Developer Mode</h3>
+
+                                        <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10 mb-3">
+                                            <span className="text-sm text-[#FFC038]">Dev Mode</span>
+                                            <Toggle
+                                                checked={settings.devMode}
+                                                onChange={() => updateSettings({ devMode: !settings.devMode })}
+                                            />
+                                        </div>
+
+                                        {settings.devMode && (
+                                            <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                                                <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                                    <span className="text-xs text-[#FFC038]">Show Fire Test Trade</span>
+                                                    <Toggle
+                                                        checked={settings.showFireTestTrade}
+                                                        onChange={() => updateSettings({ showFireTestTrade: !settings.showFireTestTrade })}
+                                                    />
+                                                </div>
+
+                                                <div className="flex items-center justify-between p-3 bg-[#140a00] rounded border border-[#FFC038]/10">
+                                                    <div className="flex items-center gap-2">
+                                                        <Terminal className="w-3 h-3 text-[#FFC038]" />
+                                                        <span className="text-xs text-[#FFC038]">Mock Data</span>
+                                                    </div>
+                                                    <Toggle
+                                                        checked={settings.mockDataEnabled}
+                                                        onChange={() => updateSettings({ mockDataEnabled: !settings.mockDataEnabled })}
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </Modal>
+            );
+};
+
+            // AI Price Settings Modal
+            const AIPriceSettingsModal = ({isOpen, onClose}: {isOpen: boolean; onClose: () => void }) => {
+    const {settings, updateSettings} = useSettings();
+            const {resetOnboarding, partialResetOnboarding} = useAuth();
+            const [instructions, setInstructions] = useState(settings.customInstructions || '');
+            const [isEditing, setIsEditing] = useState(false);
+            const [showDisclaimer, setShowDisclaimer] = useState(false);
+
+    useEffect(() => {
+                setInstructions(settings.customInstructions || '');
+    }, [settings.customInstructions, isOpen]);
+
+    const handleSave = () => {
+                updateSettings({ customInstructions: instructions });
+            setIsEditing(false);
+            onClose();
+    };
+
+    const handleReset = () => {
+                setInstructions('');
+            updateSettings({customInstructions: '' });
+            setIsEditing(false);
+    };
+
+    const handleStartEdit = () => {
+                setShowDisclaimer(true);
+    };
+
+    const confirmDisclaimer = () => {
+                setShowDisclaimer(false);
+            setIsEditing(true);
+    };
+
+            return (
+            <Modal isOpen={isOpen} onClose={onClose} className="max-w-lg">
+                {showDisclaimer ? (
+                    <div className="p-8 text-center">
+                        <AlertTriangle className="w-12 h-12 text-[#FFC038] mx-auto mb-4" />
+                        <h2 className="text-xl font-bold text-[#FFC038] mb-4 font-['Roboto']">WARNING: SYSTEM OVERRIDE</h2>
+                        <p className="text-white/70 text-sm mb-6 leading-relaxed">
+                            You are modifying the AI Assistant.
+                            <br />
+                            We cannot guarantee financial accuracy or reliability of added instructions.
+                            <br /><br />
+                            Do you want to continue?
+                        </p>
+                        <div className="flex gap-3">
+                            <Button onClick={() => setShowDisclaimer(false)} variant="secondary" className="w-full">CANCEL</Button>
+                            <Button onClick={confirmDisclaimer} variant="primary" className="w-full">CONTINUE</Button>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="p-6">
+                        <h2 className="text-xl font-bold text-[#FFC038] mb-6 flex items-center gap-2 font-['Roboto']">
+                            <GeminiIcon className="w-6 h-6" /> AI CONFIGURATION
+                        </h2>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs text-[#FFC038]/70 mb-2 uppercase font-bold tracking-wider">Custom User Instructions</label>
+                                <div className="relative">
+                                    <textarea
+                                        value={instructions}
+                                        onChange={e => setInstructions(e.target.value)}
+                                        disabled={!isEditing}
+                                        className={cn(
+                                            "w-full h-40 bg-black border rounded-lg p-3 text-sm font-mono focus:outline-none resize-none transition-colors",
+                                            isEditing ? "border-[#FFC038] text-[#FFC038]" : "border-[#FFC038]/20 text-[#FFC038]/50"
+                                        )}
+                                        placeholder="Enter custom instructions for Price..."
+                                    />
+                                    {!isEditing && (
+                                        <div className="absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px]">
+                                            <Button onClick={handleStartEdit} variant="secondary">MODIFY SYSTEM</Button>
                                         </div>
                                     )}
                                 </div>
                             </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        </Modal>
-    );
-};
 
-// AI Price Settings Modal
-const AIPriceSettingsModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
-    const { settings, updateSettings } = useSettings();
-    const { resetOnboarding, partialResetOnboarding } = useAuth();
-    const [instructions, setInstructions] = useState(settings.customInstructions || '');
-    const [isEditing, setIsEditing] = useState(false);
-    const [showDisclaimer, setShowDisclaimer] = useState(false);
+                            {isEditing && (
+                                <div className="flex gap-3 pt-2">
+                                    <Button onClick={handleReset} variant="danger" className="w-1/3">RESET</Button>
+                                    <Button onClick={handleSave} variant="primary" className="w-2/3">SAVE CONFIG</Button>
+                                </div>
+                            )}
 
-    useEffect(() => {
-        setInstructions(settings.customInstructions || '');
-    }, [settings.customInstructions, isOpen]);
-
-    const handleSave = () => {
-        updateSettings({ customInstructions: instructions });
-        setIsEditing(false);
-        onClose();
-    };
-
-    const handleReset = () => {
-        setInstructions('');
-        updateSettings({ customInstructions: '' });
-        setIsEditing(false);
-    };
-
-    const handleStartEdit = () => {
-        setShowDisclaimer(true);
-    };
-
-    const confirmDisclaimer = () => {
-        setShowDisclaimer(false);
-        setIsEditing(true);
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} className="max-w-lg">
-            {showDisclaimer ? (
-                <div className="p-8 text-center">
-                    <AlertTriangle className="w-12 h-12 text-[#FFC038] mx-auto mb-4" />
-                    <h2 className="text-xl font-bold text-[#FFC038] mb-4 font-['Roboto']">WARNING: SYSTEM OVERRIDE</h2>
-                    <p className="text-white/70 text-sm mb-6 leading-relaxed">
-                        You are modifying the AI Assistant.
-                        <br />
-                        We cannot guarantee financial accuracy or reliability of added instructions.
-                        <br /><br />
-                        Do you want to continue?
-                    </p>
-                    <div className="flex gap-3">
-                        <Button onClick={() => setShowDisclaimer(false)} variant="secondary" className="w-full">CANCEL</Button>
-                        <Button onClick={confirmDisclaimer} variant="primary" className="w-full">CONTINUE</Button>
-                    </div>
-                </div>
-            ) : (
-                <div className="p-6">
-                    <h2 className="text-xl font-bold text-[#FFC038] mb-6 flex items-center gap-2 font-['Roboto']">
-                        <GeminiIcon className="w-6 h-6" /> AI CONFIGURATION
-                    </h2>
-
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-xs text-[#FFC038]/70 mb-2 uppercase font-bold tracking-wider">Custom User Instructions</label>
-                            <div className="relative">
-                                <textarea
-                                    value={instructions}
-                                    onChange={e => setInstructions(e.target.value)}
-                                    disabled={!isEditing}
-                                    className={cn(
-                                        "w-full h-40 bg-black border rounded-lg p-3 text-sm font-mono focus:outline-none resize-none transition-colors",
-                                        isEditing ? "border-[#FFC038] text-[#FFC038]" : "border-[#FFC038]/20 text-[#FFC038]/50"
-                                    )}
-                                    placeholder="Enter custom instructions for Price..."
-                                />
-                                {!isEditing && (
-                                    <div className="absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px]">
-                                        <Button onClick={handleStartEdit} variant="secondary">MODIFY SYSTEM</Button>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {isEditing && (
-                            <div className="flex gap-3 pt-2">
-                                <Button onClick={handleReset} variant="danger" className="w-1/3">RESET</Button>
-                                <Button onClick={handleSave} variant="primary" className="w-2/3">SAVE CONFIG</Button>
-                            </div>
-                        )}
-
-                        <div className="border-t border-[#FFC038]/20 pt-4 mt-4">
-                            <h3 className="text-xs font-bold text-[#FFC038]/50 uppercase mb-4">AI Uplink Calibration</h3>
-                            <div className="grid grid-cols-2 gap-2">
-                                <Button onClick={() => { partialResetOnboarding('challenges'); onClose(); }} variant="secondary" className="w-full text-[10px]">
-                                    Reset Challenges
-                                </Button>
-                                <Button onClick={() => { partialResetOnboarding('goals'); onClose(); }} variant="secondary" className="w-full text-[10px]">
-                                    Reset Goals
-                                </Button>
-                            </div>
-                            <div className="mt-2">
-                                <Button onClick={() => { resetOnboarding(); onClose(); }} variant="danger" className="w-full text-[10px]">
-                                    Reset Full Calibration
-                                </Button>
+                            <div className="border-t border-[#FFC038]/20 pt-4 mt-4">
+                                <h3 className="text-xs font-bold text-[#FFC038]/50 uppercase mb-4">AI Uplink Calibration</h3>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <Button onClick={() => { partialResetOnboarding('challenges'); onClose(); }} variant="secondary" className="w-full text-[10px]">
+                                        Reset Challenges
+                                    </Button>
+                                    <Button onClick={() => { partialResetOnboarding('goals'); onClose(); }} variant="secondary" className="w-full text-[10px]">
+                                        Reset Goals
+                                    </Button>
+                                </div>
+                                <div className="mt-2">
+                                    <Button onClick={() => { resetOnboarding(); onClose(); }} variant="danger" className="w-full text-[10px]">
+                                        Reset Full Calibration
+                                    </Button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
-        </Modal>
-    );
+                )}
+            </Modal>
+            );
 };
 
-// Pricing Modal
-const PricingModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
-    const { user, updateTier } = useAuth();
+            // Pricing Modal
+            const PricingModal = ({isOpen, onClose}: {isOpen: boolean; onClose: () => void }) => {
+    const {user, updateTier} = useAuth();
 
     const handleUpgrade = (tier: Tier) => {
-        updateTier(tier);
-        onClose();
+                updateTier(tier);
+            onClose();
     };
 
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} className="max-w-6xl bg-black">
-            <div className="p-8 text-center">
-                <h2 className="text-2xl font-bold text-[#FFC038] font-['Roboto'] mb-2">SELECT YOUR EDGE</h2>
-                <p className="text-[#FFC038]/60 text-sm mb-10">Institutional grade tooling for the retail savage.</p>
+            return (
+            <Modal isOpen={isOpen} onClose={onClose} className="max-w-6xl bg-black">
+                <div className="p-8 text-center">
+                    <h2 className="text-2xl font-bold text-[#FFC038] font-['Roboto'] mb-2">SELECT YOUR EDGE</h2>
+                    <p className="text-[#FFC038]/60 text-sm mb-10">Institutional grade tooling for the retail savage.</p>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {/* FREE */}
-                    <div className="border border-[#FFC038]/20 rounded-xl p-4 flex flex-col items-center opacity-80 hover:opacity-100 transition-opacity">
-                        <div className="text-base font-bold text-white mb-2">PULSE (FREE)</div>
-                        <div className="text-2xl font-bold text-[#FFC038] mb-4">$0</div>
-                        <ul className="space-y-2 text-[10px] text-zinc-400 mb-6 flex-1 text-left w-full px-4">
-                            <li className="text-zinc-500 italic">No perks</li>
-                            <li className="flex gap-2 text-zinc-600"><Lock className="w-3 h-3" /> Mission Control</li>
-                            <li className="flex gap-2 text-zinc-600"><Lock className="w-3 h-3" /> PsychAssist</li>
-                            <li className="flex gap-2 text-zinc-600"><Lock className="w-3 h-3" /> AI Price</li>
-                            <li className="flex gap-2 text-zinc-600"><Lock className="w-3 h-3" /> Newswire</li>
-                        </ul>
-                        <Button onClick={() => handleUpgrade('free')} variant="secondary" className="w-full text-xs" disabled={user.tier === 'free'}>
-                            {user.tier === 'free' ? 'CURRENT' : 'DOWNGRADE'}
-                        </Button>
-                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {/* FREE */}
+                        <div className="border border-[#FFC038]/20 rounded-xl p-4 flex flex-col items-center opacity-80 hover:opacity-100 transition-opacity">
+                            <div className="text-base font-bold text-white mb-2">PULSE (FREE)</div>
+                            <div className="text-2xl font-bold text-[#FFC038] mb-4">$0</div>
+                            <ul className="space-y-2 text-[10px] text-zinc-400 mb-6 flex-1 text-left w-full px-4">
+                                <li className="text-zinc-500 italic">No perks</li>
+                                <li className="flex gap-2 text-zinc-600"><Lock className="w-3 h-3" /> Mission Control</li>
+                                <li className="flex gap-2 text-zinc-600"><Lock className="w-3 h-3" /> PsychAssist</li>
+                                <li className="flex gap-2 text-zinc-600"><Lock className="w-3 h-3" /> AI Price</li>
+                                <li className="flex gap-2 text-zinc-600"><Lock className="w-3 h-3" /> Newswire</li>
+                            </ul>
+                            <Button onClick={() => handleUpgrade('free')} variant="secondary" className="w-full text-xs" disabled={user.tier === 'free'}>
+                                {user.tier === 'free' ? 'CURRENT' : 'DOWNGRADE'}
+                            </Button>
+                        </div>
 
-                    {/* PULSE ($49) */}
-                    <div className={cn("border rounded-xl p-4 flex flex-col items-center transition-all", user.tier === 'pulse' ? "border-[#FFC038] bg-[#FFC038]/5" : "border-[#FFC038]/20 hover:border-[#FFC038]/60")}>
-                        <div className="text-base font-bold text-white mb-2">PULSE</div>
-                        <div className="text-2xl font-bold text-[#FFC038] mb-4">$49<span className="text-xs font-normal text-white/50">/mo</span></div>
-                        <ul className="space-y-2 text-[10px] text-[#FFC038]/80 mb-6 flex-1 text-left w-full px-4">
-                            <li className="flex gap-2"><Check className="w-3 h-3" /> PsychAssist</li>
-                            <li className="flex gap-2 text-zinc-500"><XIcon className="w-3 h-3" /> No Algo Trader</li>
-                            <li className="flex gap-2 text-zinc-500"><XIcon className="w-3 h-3" /> No News Feed</li>
-                            <li className="flex gap-2 text-zinc-500"><XIcon className="w-3 h-3" /> No AI Price</li>
-                        </ul>
-                        <Button onClick={() => handleUpgrade('pulse')} variant={user.tier === 'pulse' ? "primary" : "secondary"} className="w-full text-xs" disabled={user.tier === 'pulse'}>
-                            {user.tier === 'pulse' ? 'CURRENT' : 'ACTIVATE'}
-                        </Button>
-                    </div>
+                        {/* PULSE ($49) */}
+                        <div className={cn("border rounded-xl p-4 flex flex-col items-center transition-all", user.tier === 'pulse' ? "border-[#FFC038] bg-[#FFC038]/5" : "border-[#FFC038]/20 hover:border-[#FFC038]/60")}>
+                            <div className="text-base font-bold text-white mb-2">PULSE</div>
+                            <div className="text-2xl font-bold text-[#FFC038] mb-4">$49<span className="text-xs font-normal text-white/50">/mo</span></div>
+                            <ul className="space-y-2 text-[10px] text-[#FFC038]/80 mb-6 flex-1 text-left w-full px-4">
+                                <li className="flex gap-2"><Check className="w-3 h-3" /> PsychAssist</li>
+                                <li className="flex gap-2 text-zinc-500"><XIcon className="w-3 h-3" /> No Algo Trader</li>
+                                <li className="flex gap-2 text-zinc-500"><XIcon className="w-3 h-3" /> No News Feed</li>
+                                <li className="flex gap-2 text-zinc-500"><XIcon className="w-3 h-3" /> No AI Price</li>
+                            </ul>
+                            <Button onClick={() => handleUpgrade('pulse')} variant={user.tier === 'pulse' ? "primary" : "secondary"} className="w-full text-xs" disabled={user.tier === 'pulse'}>
+                                {user.tier === 'pulse' ? 'CURRENT' : 'ACTIVATE'}
+                            </Button>
+                        </div>
 
-                    {/* PULSE+ ($99) */}
-                    <div className={cn("border rounded-xl p-4 flex flex-col items-center transition-all shadow-xl shadow-[#FFC038]/10", user.tier === 'pulse_plus' ? "border-[#FFC038] bg-[#FFC038]/5" : "border-[#FFC038]/20 hover:border-[#FFC038]/60")}>
-                        <div className="text-base font-bold text-white mb-2">PULSE+</div>
-                        <div className="text-2xl font-bold text-[#FFC038] mb-4">$99<span className="text-xs font-normal text-white/50">/mo</span></div>
-                        <ul className="space-y-2 text-[10px] text-[#FFC038]/80 mb-6 flex-1 text-left w-full px-4">
-                            <li className="flex gap-2"><Check className="w-3 h-3" /> Algo Trader / Post Algo</li>
-                            <li className="flex gap-2"><Check className="w-3 h-3" /> PsychAssist</li>
-                            <li className="flex gap-2"><Check className="w-3 h-3" /> AI Price</li>
-                        </ul>
-                        <Button onClick={() => handleUpgrade('pulse_plus')} variant={user.tier === 'pulse_plus' ? "primary" : "secondary"} className="w-full text-xs" disabled={user.tier === 'pulse_plus'}>
-                            {user.tier === 'pulse_plus' ? 'CURRENT' : 'UPGRADE'}
-                        </Button>
-                    </div>
+                        {/* PULSE+ ($99) */}
+                        <div className={cn("border rounded-xl p-4 flex flex-col items-center transition-all shadow-xl shadow-[#FFC038]/10", user.tier === 'pulse_plus' ? "border-[#FFC038] bg-[#FFC038]/5" : "border-[#FFC038]/20 hover:border-[#FFC038]/60")}>
+                            <div className="text-base font-bold text-white mb-2">PULSE+</div>
+                            <div className="text-2xl font-bold text-[#FFC038] mb-4">$99<span className="text-xs font-normal text-white/50">/mo</span></div>
+                            <ul className="space-y-2 text-[10px] text-[#FFC038]/80 mb-6 flex-1 text-left w-full px-4">
+                                <li className="flex gap-2"><Check className="w-3 h-3" /> Algo Trader / Post Algo</li>
+                                <li className="flex gap-2"><Check className="w-3 h-3" /> PsychAssist</li>
+                                <li className="flex gap-2"><Check className="w-3 h-3" /> AI Price</li>
+                            </ul>
+                            <Button onClick={() => handleUpgrade('pulse_plus')} variant={user.tier === 'pulse_plus' ? "primary" : "secondary"} className="w-full text-xs" disabled={user.tier === 'pulse_plus'}>
+                                {user.tier === 'pulse_plus' ? 'CURRENT' : 'UPGRADE'}
+                            </Button>
+                        </div>
 
-                    {/* PULSE PRO ($149) */}
-                    <div className={cn("border rounded-xl p-4 flex flex-col items-center transition-all", user.tier === 'pulse_pro' ? "border-[#FFC038] bg-[#FFC038]/5" : "border-[#FFC038]/20 hover:border-[#FFC038]/60")}>
-                        <div className="text-base font-bold text-white mb-2">PULSE PRO</div>
-                        <div className="text-2xl font-bold text-[#FFC038] mb-4">$149<span className="text-xs font-normal text-white/50">/mo</span></div>
-                        <ul className="space-y-2 text-[10px] text-[#FFC038]/80 mb-6 flex-1 text-left w-full px-4">
-                            <li className="flex gap-2 font-bold"><Check className="w-3 h-3" /> Real-Time Newswire</li>
-                            <li className="flex gap-2"><Check className="w-3 h-3" /> Everything in Pulse+</li>
-                        </ul>
-                        <Button onClick={() => handleUpgrade('pulse_pro')} variant={user.tier === 'pulse_pro' ? "primary" : "secondary"} className="w-full text-xs" disabled={user.tier === 'pulse_pro'}>
-                            {user.tier === 'pulse_pro' ? 'CURRENT' : 'UPGRADE'}
-                        </Button>
+                        {/* PULSE PRO ($149) */}
+                        <div className={cn("border rounded-xl p-4 flex flex-col items-center transition-all", user.tier === 'pulse_pro' ? "border-[#FFC038] bg-[#FFC038]/5" : "border-[#FFC038]/20 hover:border-[#FFC038]/60")}>
+                            <div className="text-base font-bold text-white mb-2">PULSE PRO</div>
+                            <div className="text-2xl font-bold text-[#FFC038] mb-4">$149<span className="text-xs font-normal text-white/50">/mo</span></div>
+                            <ul className="space-y-2 text-[10px] text-[#FFC038]/80 mb-6 flex-1 text-left w-full px-4">
+                                <li className="flex gap-2 font-bold"><Check className="w-3 h-3" /> Real-Time Newswire</li>
+                                <li className="flex gap-2"><Check className="w-3 h-3" /> Everything in Pulse+</li>
+                            </ul>
+                            <Button onClick={() => handleUpgrade('pulse_pro')} variant={user.tier === 'pulse_pro' ? "primary" : "secondary"} className="w-full text-xs" disabled={user.tier === 'pulse_pro'}>
+                                {user.tier === 'pulse_pro' ? 'CURRENT' : 'UPGRADE'}
+                            </Button>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </Modal>
-    );
+            </Modal>
+            );
 }
 
-// Onboarding Modal
-const UplinkOnboardingModal = ({ isOpen, onComplete, onCancel }: { isOpen: boolean; onComplete: () => void; onCancel: () => void }) => {
-    const { user, saveOnboardingData } = useAuth();
-    const [challenges, setChallenges] = useState<string[]>(user.onboardingData?.challenges || []);
-    const [goals, setGoals] = useState<string[]>(user.onboardingData?.goals || []);
-    const [otherChallenge, setOtherChallenge] = useState(user.onboardingData?.otherChallenge || '');
-    const [otherGoal, setOtherGoal] = useState(user.onboardingData?.otherGoal || '');
+            // Onboarding Modal
+            const UplinkOnboardingModal = ({isOpen, onComplete, onCancel}: {isOpen: boolean; onComplete: () => void; onCancel: () => void }) => {
+    const {user, saveOnboardingData} = useAuth();
+            const [challenges, setChallenges] = useState<string[]>(user.onboardingData?.challenges || []);
+            const [goals, setGoals] = useState<string[]>(user.onboardingData?.goals || []);
+            const [otherChallenge, setOtherChallenge] = useState(user.onboardingData?.otherChallenge || '');
+            const [otherGoal, setOtherGoal] = useState(user.onboardingData?.otherGoal || '');
 
     const toggleChallenge = (item: string) => {
-        setChallenges(prev => prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]);
+                setChallenges(prev => prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]);
     };
 
     const toggleGoal = (item: string) => {
-        setGoals(prev => prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]);
+                setGoals(prev => prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]);
     };
 
     const isValid = challenges.length >= 2 && goals.length >= 1;
 
     const handleComplete = () => {
         if (!isValid) return;
-        saveOnboardingData({ challenges, goals, otherChallenge, otherGoal });
-        onComplete();
+            saveOnboardingData({challenges, goals, otherChallenge, otherGoal});
+            onComplete();
     };
 
-    return (
-        <Modal isOpen={isOpen} onClose={onCancel} className="max-w-2xl" hideClose={true}>
-            <div className="p-8">
-                <div className="text-center mb-6">
-                    <div className="w-16 h-16 rounded-full bg-[#FFC038]/10 flex items-center justify-center mb-4 animate-pulse mx-auto">
-                        <Zap className="w-8 h-8 text-[#FFC038]" />
+            return (
+            <Modal isOpen={isOpen} onClose={onCancel} className="max-w-2xl" hideClose={true}>
+                <div className="p-8">
+                    <div className="text-center mb-6">
+                        <div className="w-16 h-16 rounded-full bg-[#FFC038]/10 flex items-center justify-center mb-4 animate-pulse mx-auto">
+                            <Zap className="w-8 h-8 text-[#FFC038]" />
+                        </div>
+                        <h2 className="text-xl font-bold text-[#FFC038] mb-2 font-['Roboto']">INITIALIZING UPLINK</h2>
+                        <p className="text-white/60 text-xs leading-relaxed">
+                            Complete calibration to establish neural link.
+                        </p>
                     </div>
-                    <h2 className="text-xl font-bold text-[#FFC038] mb-2 font-['Roboto']">INITIALIZING UPLINK</h2>
-                    <p className="text-white/60 text-xs leading-relaxed">
-                        Complete calibration to establish neural link.
-                    </p>
+
+                    <div className="space-y-6">
+                        {/* Challenges */}
+                        <div>
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Challenges (Select at least 2)</label>
+                                <span className={cn("text-[10px]", challenges.length >= 2 ? "text-emerald-500" : "text-red-500")}>{challenges.length}/2</span>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2">
+                                {CHALLENGE_PRESETS.map(c => (
+                                    <button
+                                        key={c}
+                                        onClick={() => toggleChallenge(c)}
+                                        className={cn(
+                                            "text-[9px] p-2 rounded border transition-all text-center h-full flex items-center justify-center",
+                                            challenges.includes(c)
+                                                ? "bg-[#FFC038] text-black border-[#FFC038] font-bold"
+                                                : "bg-transparent text-[#FFC038]/60 border-[#FFC038]/20 hover:border-[#FFC038]/50"
+                                        )}
+                                    >
+                                        {c}
+                                    </button>
+                                ))}
+                            </div>
+                            <textarea
+                                value={otherChallenge}
+                                onChange={e => setOtherChallenge(e.target.value)}
+                                className="w-full bg-black border border-[#FFC038]/20 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none h-16 resize-none placeholder-[#FFC038]/20"
+                                placeholder="Other challenges..."
+                            />
+                        </div>
+
+                        {/* Goals */}
+                        <div>
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Goals (Select at least 1)</label>
+                                <span className={cn("text-[10px]", goals.length >= 1 ? "text-emerald-500" : "text-red-500")}>{goals.length}/1</span>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-2">
+                                {GOAL_PRESETS.map(g => (
+                                    <button
+                                        key={g}
+                                        onClick={() => toggleGoal(g)}
+                                        className={cn(
+                                            "text-[9px] p-2 rounded border transition-all text-center h-full flex items-center justify-center",
+                                            goals.includes(g)
+                                                ? "bg-[#FFC038] text-black border-[#FFC038] font-bold"
+                                                : "bg-transparent text-[#FFC038]/60 border-[#FFC038]/20 hover:border-[#FFC038]/50"
+                                        )}
+                                    >
+                                        {g}
+                                    </button>
+                                ))}
+                            </div>
+                            <textarea
+                                value={otherGoal}
+                                onChange={e => setOtherGoal(e.target.value)}
+                                className="w-full bg-black border border-[#FFC038]/20 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none h-16 resize-none placeholder-[#FFC038]/20"
+                                placeholder="Other goals..."
+                            />
+                        </div>
+
+                        <div className="pt-2 flex flex-col gap-2">
+                            <Button onClick={handleComplete} variant="primary" className="w-full py-3" disabled={!isValid}>ESTABLISH CONNECTION</Button>
+                            <button onClick={onCancel} className="text-[10px] text-[#FFC038]/40 hover:text-[#FFC038] uppercase tracking-widest">Abort Uplink</button>
+                        </div>
+                    </div>
                 </div>
-
-                <div className="space-y-6">
-                    {/* Challenges */}
-                    <div>
-                        <div className="flex justify-between items-center mb-2">
-                            <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Challenges (Select at least 2)</label>
-                            <span className={cn("text-[10px]", challenges.length >= 2 ? "text-emerald-500" : "text-red-500")}>{challenges.length}/2</span>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2">
-                            {CHALLENGE_PRESETS.map(c => (
-                                <button
-                                    key={c}
-                                    onClick={() => toggleChallenge(c)}
-                                    className={cn(
-                                        "text-[9px] p-2 rounded border transition-all text-center h-full flex items-center justify-center",
-                                        challenges.includes(c)
-                                            ? "bg-[#FFC038] text-black border-[#FFC038] font-bold"
-                                            : "bg-transparent text-[#FFC038]/60 border-[#FFC038]/20 hover:border-[#FFC038]/50"
-                                    )}
-                                >
-                                    {c}
-                                </button>
-                            ))}
-                        </div>
-                        <textarea
-                            value={otherChallenge}
-                            onChange={e => setOtherChallenge(e.target.value)}
-                            className="w-full bg-black border border-[#FFC038]/20 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none h-16 resize-none placeholder-[#FFC038]/20"
-                            placeholder="Other challenges..."
-                        />
-                    </div>
-
-                    {/* Goals */}
-                    <div>
-                        <div className="flex justify-between items-center mb-2">
-                            <label className="text-[10px] text-[#FFC038]/70 uppercase font-bold">Goals (Select at least 1)</label>
-                            <span className={cn("text-[10px]", goals.length >= 1 ? "text-emerald-500" : "text-red-500")}>{goals.length}/1</span>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-2">
-                            {GOAL_PRESETS.map(g => (
-                                <button
-                                    key={g}
-                                    onClick={() => toggleGoal(g)}
-                                    className={cn(
-                                        "text-[9px] p-2 rounded border transition-all text-center h-full flex items-center justify-center",
-                                        goals.includes(g)
-                                            ? "bg-[#FFC038] text-black border-[#FFC038] font-bold"
-                                            : "bg-transparent text-[#FFC038]/60 border-[#FFC038]/20 hover:border-[#FFC038]/50"
-                                    )}
-                                >
-                                    {g}
-                                </button>
-                            ))}
-                        </div>
-                        <textarea
-                            value={otherGoal}
-                            onChange={e => setOtherGoal(e.target.value)}
-                            className="w-full bg-black border border-[#FFC038]/20 rounded px-3 py-2 text-[#FFC038] text-xs font-mono focus:border-[#FFC038] outline-none h-16 resize-none placeholder-[#FFC038]/20"
-                            placeholder="Other goals..."
-                        />
-                    </div>
-
-                    <div className="pt-2 flex flex-col gap-2">
-                        <Button onClick={handleComplete} variant="primary" className="w-full py-3" disabled={!isValid}>ESTABLISH CONNECTION</Button>
-                        <button onClick={onCancel} className="text-[10px] text-[#FFC038]/40 hover:text-[#FFC038] uppercase tracking-widest">Abort Uplink</button>
-                    </div>
-                </div>
-            </div>
-        </Modal>
-    )
+            </Modal>
+            )
 }
 
 // --- App Content ---
 const AppContent = () => {
-    const { user, markOnboardingSeen } = useAuth();
-    const { settings } = useSettings();
-    const [activeTab, setActiveTab] = useState<'feed' | 'news' | 'analysis'>('feed');
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [isAIPriceSettingsOpen, setIsAIPriceSettingsOpen] = useState(false);
-    const [isPricingOpen, setIsPricingOpen] = useState(false);
-    const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+    const {user, markOnboardingSeen} = useAuth();
+            const {settings} = useSettings();
+            const [activeTab, setActiveTab] = useState<'feed' | 'news' | 'analysis'>('feed');
+            const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+            const [isAIPriceSettingsOpen, setIsAIPriceSettingsOpen] = useState(false);
+            const [isPricingOpen, setIsPricingOpen] = useState(false);
+            const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 
-    // Feed States
-    const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
-    const [newsItems, setNewsItems] = useState<FeedItem[]>([]);
+            // Feed States
+            const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
+            const [newsItems, setNewsItems] = useState<FeedItem[]>([]);
 
-    // Psych State (Lifted for Agent Context)
-    const [psychState, setPsychState] = useState<{ score: number, state: EmotionalState, tiltCount: number }>({
-        score: 5.0,
-        state: 'stable',
-        tiltCount: 0
+            // Psych State (Lifted for Agent Context)
+            const [psychState, setPsychState] = useState<{ score: number, state: EmotionalState, tiltCount: number }>({
+                score: 5.0,
+            state: 'stable',
+            tiltCount: 0
     });
 
-    // Calculate IV helper using Gemini API for realistic analysis
-    const calculateIV = async (text: string): Promise<IVData> => {
+            // Calculate IV helper using Gemini API for realistic analysis
+            const calculateIV = async (text: string): Promise<IVData> => {
         const instrument = INSTRUMENT_RULES[settings.selectedInstrument] || INSTRUMENT_RULES['ES'];
-        try {
+                try {
             // Use Gemini to analyze the headline for market impact
             const prompt = `Analyze this market news headline for ${instrument.name} (${settings.selectedInstrument}) day trading:
 
-"${text}"
+                "${text}"
 
-Provide a realistic implied volatility estimate in points for a scalping timeframe (minutes to hours).
-Use economic reasoning (e.g., earnings, Fed speakers, geopolitical events) to determine impact.
-Current Instrument Rules: Tick Size: ${instrument.tickSize}, Point Value: $${instrument.pointValue}.
-Typical IV Range: ${instrument.ivRange.low}-${instrument.ivRange.high} points.
+                Provide a realistic implied volatility estimate in points for a scalping timeframe (minutes to hours).
+                Use economic reasoning (e.g., earnings, Fed speakers, geopolitical events) to determine impact.
+                Current Instrument Rules: Tick Size: ${instrument.tickSize}, Point Value: $${instrument.pointValue}.
+                Typical IV Range: ${instrument.ivRange.low}-${instrument.ivRange.high} points.
 
-Ranges:
-- Minor news: ${instrument.ivRange.low}-${instrument.ivRange.high} points
-- Medium news: ${instrument.ivRange.high}-${instrument.ivRange.high * 2} points
-- Major news: ${instrument.ivRange.high * 2}+ points
+                Ranges:
+                - Minor news: ${instrument.ivRange.low}-${instrument.ivRange.high} points
+                - Medium news: ${instrument.ivRange.high}-${instrument.ivRange.high * 2} points
+                - Major news: ${instrument.ivRange.high * 2}+ points
 
-Respond in JSON format ONLY:
-{"points": <number>, "direction": "bullish" or "bearish", "reasoning": "<brief explanation>"}`;
+                Respond in JSON format ONLY:
+                {"points": <number>, "direction": "bullish" or "bearish", "reasoning": "<brief explanation>"}`;
 
-            const apiKey = settings.geminiApiKey || (window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY;
+                    const apiKey = settings.geminiApiKey || (window as any).__GEMINI_API_KEY__ || import.meta.env.VITE_GEMINI_API_KEY;
 
-            if (!apiKey) throw new Error("No Gemini API Key");
+                    if (!apiKey) throw new Error("No Gemini API Key");
 
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                    headers: {'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{parts: [{text: prompt }] }],
                     generationConfig: {
                         temperature: 0.3,
-                        maxOutputTokens: 200
+                    maxOutputTokens: 200
                     }
                 })
             });
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                console.error('GEMINI_IV_FAILED: API Error', {
-                    status: response.status,
-                    statusText: response.statusText,
-                    error: errorData,
-                    instrument: settings.selectedInstrument
-                });
-                throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
-            }
+                    const data = await response.json();
+                    const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-            const data = await response.json();
-            const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-            if (!aiResponse) {
-                console.warn('GEMINI_IV_FAILED: Empty response', { data });
-                throw new Error('Empty Gemini response');
-            }
-
-            // Parse JSON from AI response
-            const jsonMatch = aiResponse.match(/\{[^}]+\}/);
-            if (jsonMatch) {
+                    // Parse JSON from AI response
+                    const jsonMatch = aiResponse.match(/\{[^}]+\}/);
+                    if (jsonMatch) {
                 const parsed = JSON.parse(jsonMatch[0]);
-                const value = parsed.direction === 'bearish' ? -Math.abs(parsed.points) : Math.abs(parsed.points);
+                    const value = parsed.direction === 'bearish' ? -Math.abs(parsed.points) : Math.abs(parsed.points);
                 const type = value >= 0 ? 'cyclical' : 'countercyclical';
-                return { type, value };
-            } else {
-                console.warn('GEMINI_IV_FAILED: Could not parse JSON from response', { aiResponse });
-                throw new Error('Invalid Gemini response format');
+                    return {type, value};
             }
-        } catch (error: any) {
-            console.error('GEMINI_IV_FAILED:', {
-                error: error.message,
-                instrument: settings.selectedInstrument,
-                hasApiKey: !!settings.geminiApiKey,
-                headline: text.substring(0, 100)
-            });
+        } catch (error) {
+                        console.error('Gemini IV Analysis Error:', error);
         }
 
-        // Fallback to simple analysis if API fails
-        const lowerText = text.toLowerCase();
-        const bullishTerms = ['beats', 'surge', 'rally', 'gain', 'positive', 'growth', 'up', 'rise'];
-        const bearishTerms = ['miss', 'crash', 'drop', 'loss', 'negative', 'decline', 'down', 'fall'];
-        const majorTerms = ['fomc', 'fed', 'cpi', 'nfp', 'inflation', 'gdp', 'rate', 'powell'];
+                    // Fallback to simple analysis if API fails
+                    const lowerText = text.toLowerCase();
+                    const bullishTerms = ['beats', 'surge', 'rally', 'gain', 'positive', 'growth', 'up', 'rise'];
+                    const bearishTerms = ['miss', 'crash', 'drop', 'loss', 'negative', 'decline', 'down', 'fall'];
+                    const majorTerms = ['fomc', 'fed', 'cpi', 'nfp', 'inflation', 'gdp', 'rate', 'powell'];
 
         const isBullish = bullishTerms.some(t => lowerText.includes(t));
         const isBearish = bearishTerms.some(t => lowerText.includes(t));
         const isMajor = majorTerms.some(t => lowerText.includes(t));
 
-        const magnitude = isMajor
-            ? Math.floor(30 + Math.random() * 40)
-            : Math.floor(10 + Math.random() * 20);
+                    const magnitude = isMajor
+                    ? Math.floor(30 + Math.random() * 40)
+                    : Math.floor(10 + Math.random() * 20);
 
         let value = isBearish ? -magnitude : isBullish ? magnitude : (Math.random() > 0.5 ? 1 : -1) * magnitude;
 
         const type = value >= 0 ? 'cyclical' : 'countercyclical';
-        return { type, value };
+                    return {type, value};
     };
 
     const processItems = useCallback(async (rawItems: any[]) => {
         const newItems: FeedItem[] = await Promise.all(rawItems.map(async (t: any) => {
             const iv = await calculateIV(t.text);
-            return {
-                id: Number(t.id),
-                time: new Date(t.created_at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' }) + " EST",
-                text: t.text,
-                type: 'info',
-                source: 'X', // Default source
-                iv: iv
+                    return {
+                        id: Number(t.id),
+                    time: new Date(t.created_at).toLocaleTimeString([], {hour12: false, hour: '2-digit', minute: '2-digit' }) + " EST",
+                    text: t.text,
+                    type: 'info',
+                    source: 'Aggregator', // Default source
+                    iv: iv
             };
         }));
 
@@ -3184,70 +3382,64 @@ Respond in JSON format ONLY:
         setFeedItems(prev => {
             const existingIds = new Set(prev.map(i => i.id));
             const filtered = newItems.filter(i => !existingIds.has(i.id));
-            return [...filtered, ...prev].slice(0, 50);
+                    return [...filtered, ...prev].slice(0, 50);
         });
 
         // Update News Feed
         setNewsItems(prev => {
             const existingIds = new Set(prev.map(i => i.id));
             const filtered = newItems.filter(i => !existingIds.has(i.id));
-            return [...filtered, ...prev].slice(0, 50);
+                    return [...filtered, ...prev].slice(0, 50);
         });
     }, []);
 
     // Live Feed Fetcher with Fallback
     const fetchFeed = useCallback(async (limit: number = 20) => {
-        console.log(`[Feed] Fetching... Limit: ${limit}, Mock: ${settings.mockDataEnabled}`);
+                        console.log(`[Feed] Fetching from News Aggregator... Limit: ${limit}, Mock: ${settings.mockDataEnabled}`);
 
-        // STRICT REAL MODE: Only mock if explicitly enabled
-        if (settings.mockDataEnabled) {
-            // Simulate network latency then return mock
-            await new Promise(r => setTimeout(r, 500));
-            const mockItem = MOCK_WIRE_DATA[Math.floor(Math.random() * MOCK_WIRE_DATA.length)];
-            const newRawItems = [{
-                id: Date.now(),
-                created_at: new Date().toISOString(),
-                text: mockItem.text,
-                source: mockItem.source
-            }];
-            await processItems(newRawItems);
-            return;
+                    if (settings.mockDataEnabled) {
+                        processItems(MOCK_WIRE_DATA.slice(0, limit));
+                    return;
         }
 
-        // REAL DATA MODE - Fetch from /api/newsfeed (Finnhub/Alpaca hybrid)
-        try {
-            console.log("[Feed] Fetching from /api/newsfeed...");
+                    try {
+            // Use news aggregator endpoint (Alpaca + Finnhub)
+            const NEWS_AGGREGATOR_URL = 'https://news-aggregator.pricedinresearch.workers.dev';
 
-            const res = await fetch('/api/newsfeed', {
-                method: 'GET'
+                    const url = new URL(NEWS_AGGREGATOR_URL);
+                    url.searchParams.set('limit', limit.toString());
+
+                    console.log('[Feed] Calling News Aggregator...');
+                    const response = await fetch(url.toString(), {
+                        headers: {
+                        'X-Alpaca-Key': settings.alpacaApiKey || '',
+                    'X-Alpaca-Secret': settings.alpacaApiSecret || '',
+                    'X-Finnhub-Key': settings.finnhubApiKey || ''
+                }
             });
 
-            if (!res.ok) {
-                const errorText = await res.text();
-                throw new Error(`API Failure: ${res.status} ${res.statusText} - ${errorText}`);
+                    if (!response.ok) {
+                throw new Error(`News aggregator returned ${response.status}`);
             }
 
-            const data = await res.json();
-            console.log(`[Feed] Received ${data.length || 0} items`);
+                    const data = await response.json();
 
-            if (data && Array.isArray(data)) {
-                // Process items with Finnhub/Alpaca format: headline/text, datetime/timestamp
-                const processedItems = data.map((item: any) => ({
-                    id: item.id || Date.now() + Math.random(),
-                    created_at: item.datetime || item.timestamp || new Date().toISOString(),
-                    text: item.headline || item.text || '',
-                    source: item.source || 'Market Wire'
-                }));
-                await processItems(processedItems);
+                    if (data.success && data.data) {
+                        console.log(`[Feed] ✅ Received ${data.count} items from aggregator`);
+                    processItems(data.data);
+            } else {
+                throw new Error('Invalid response format from news aggregator');
             }
+
         } catch (e) {
-            console.error("[Feed] Uplink Failed:", e);
-            // Do NOT fallback to mock data in real mode
+                        console.error("[Feed] Aggregator Failed:", e);
+                    // Fallback to mock data on error
+                    processItems(MOCK_WIRE_DATA.slice(0, limit));
         }
-    }, [settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.geminiApiKey]);
+    }, [settings.mockDataEnabled, processItems, settings.selectedInstrument, settings.claudeApiKey, settings.alpacaApiKey, settings.alpacaApiSecret, settings.finnhubApiKey]);
 
     useEffect(() => {
-        fetchFeed(); // Initial fetch
+                        fetchFeed(); // Initial fetch
         const interval = setInterval(() => fetchFeed(20), 5000); // Poll every 5 seconds
 
         return () => clearInterval(interval);
@@ -3256,69 +3448,72 @@ Respond in JSON format ONLY:
     const handleTabChange = (tab: 'feed' | 'news' | 'analysis') => {
         const canAccessAI = user.tier === 'pulse_plus' || user.tier === 'pulse_pro';
 
-        if (tab === 'analysis') {
+                    if (tab === 'analysis') {
             if (canAccessAI && !user.hasSeenPriceOnboarding) {
-                setIsOnboardingOpen(true);
+                        setIsOnboardingOpen(true);
             }
         }
-        setActiveTab(tab);
+                    setActiveTab(tab);
     };
 
     const handleOnboardingComplete = () => {
-        markOnboardingSeen();
-        setIsOnboardingOpen(false);
+                        markOnboardingSeen();
+                    setIsOnboardingOpen(false);
     }
 
     const handleOnboardingCancel = () => {
-        setIsOnboardingOpen(false);
-        if (!user.hasSeenPriceOnboarding) {
-            setActiveTab('feed');
+                        setIsOnboardingOpen(false);
+                    if (!user.hasSeenPriceOnboarding) {
+                        setActiveTab('feed');
         }
     }
 
     const handlePsychUpdate = (score: number, state: EmotionalState, tiltCount: number) => {
-        // Only update if state changed significantly or periodically
-        // For now, we just log it or update local state if needed
-        // The monitor handles the alerts directly
-    };
+                        // Only update if state changed significantly or periodically
+                        // For now, we just log it or update local state if needed
+                        // The monitor handles the alerts directly
+                    };
 
     const handleTilt = async (tiltCount: number) => {
-        console.log("User Tilt Detected:", tiltCount);
+                        console.log("User Tilt Detected:", tiltCount);
 
-        // Generate AI Response for Tilt
-        if (settings.geminiApiKey) {
+                    // Generate AI Response for Tilt
+                    if (settings.claudeApiKey) {
             const context: AgentContext = {
-                marketState: 'volatile', // Mock - should derive from market data
-                userState: {
-                    pnl: settings.currentPNL,
-                    emotionalState: 'tilt',
+                        erScore: psychState.score,
+                    erState: psychState.state,
                     tiltCount: tiltCount,
-                    openPositions: positions.length
-                },
-                activePositions: positions.map(p => ({
-                    symbol: p.symbol,
-                    pnl: p.profitAndLoss,
-                    side: p.side
-                }))
+                    feedItems: feedItems,
+                    userTier: user.tier,
+                    userName: user.name,
+                    activeThreadId: null, // No specific thread for tilt alert
+                    instrumentDetails: INSTRUMENT_RULES[settings.selectedInstrument] ? {
+                        symbol: settings.selectedInstrument,
+                    name: INSTRUMENT_RULES[settings.selectedInstrument].name,
+                    tickSize: INSTRUMENT_RULES[settings.selectedInstrument].tickSize,
+                    pointValue: INSTRUMENT_RULES[settings.selectedInstrument].pointValue,
+                    ivRange: INSTRUMENT_RULES[settings.selectedInstrument].ivRange
+                } : undefined,
+                    algoState: algoState,
+                activeModels: Object.keys(settings.tradingModels).filter(k => settings.tradingModels[k as keyof typeof settings.tradingModels])
             };
 
-            const prompt = `User has tilted ${tiltCount} times. PNL is ${settings.currentPNL}. Provide a short, punchy, drill-sergeant style warning to snap them out of it.`;
+                    const prompt = `User has tilted ${tiltCount} times. PNL is ${settings.currentPNL}. Provide a short, punchy, drill-sergeant style warning to snap them out of it.`;
 
-            try {
+                    try {
                 const response = await generateAgentResponse(prompt, [], context, {
-                    name: 'Pulse',
-                    style: 'drill_sergeant',
-                    riskTolerance: 'low',
-                    maxDrawdown: settings.dailyLossLimit
+                        customInstructions: settings.customInstructions,
+                    drillSergeantMode: true,
+                    claudeApiKey: settings.claudeApiKey
                 });
 
-                // Add to chat or display as alert
-                // For now, we'll just log it, but ideally this goes into a chat/alert stream
-                console.log("AI Agent Tilt Response:", response);
+                    // Add to chat or display as alert
+                    // For now, we'll just log it, but ideally this goes into a chat/alert stream
+                    console.log("AI Agent Tilt Response:", response);
 
                 // You could also trigger a specific voice alert here using ElevenLabs if integrated
             } catch (e) {
-                console.error("Failed to generate AI response for tilt:", e);
+                        console.error("Failed to generate AI response for tilt:", e);
             }
         }
     };
@@ -3326,156 +3521,158 @@ Respond in JSON format ONLY:
     const getTierLabel = () => {
         switch (user.tier) {
             case 'free': return 'PULSE';
-            case 'pulse': return 'PULSE';
-            case 'pulse_plus': return 'PULSE+';
-            case 'pulse_pro': return 'PULSE PRO';
-            default: return 'PULSE';
+                    case 'pulse': return 'PULSE';
+                    case 'pulse_plus': return 'PULSE+';
+                    case 'pulse_pro': return 'PULSE PRO';
+                    default: return 'PULSE';
         }
     };
 
-    return (
-        <ErrorBoundary>
-            <div className="h-screen w-screen bg-black text-[#FFC038] font-mono flex flex-col overflow-hidden relative selection:bg-[#FFC038] selection:text-black">
-                {/* Modals */}
-                <SettingsModal
-                    isOpen={isSettingsOpen}
-                    onClose={() => setIsSettingsOpen(false)}
-                    onSave={() => fetchFeed(15)}
-                />
-                <AIPriceSettingsModal isOpen={isAIPriceSettingsOpen} onClose={() => setIsAIPriceSettingsOpen(false)} />
-                <PricingModal isOpen={isPricingOpen} onClose={() => setIsPricingOpen(false)} />
-                <UplinkOnboardingModal isOpen={isOnboardingOpen} onComplete={handleOnboardingComplete} onCancel={handleOnboardingCancel} />
-
-                {/* Header */}
-                <header className="h-14 border-b border-[#FFC038]/20 flex items-center justify-between px-6 bg-[#050500] shrink-0 z-50">
-                    <div className="flex items-center gap-4">
-                        <span className="text-[#FFC038] font-bold text-xl tracking-widest uppercase font-['Roboto']">Pulse</span>
-
-                        <div>
-                            <div className="flex gap-2 items-center">
-                                <p className="text-[9px] text-[#FFC038] font-mono tracking-widest">SYSTEM {user.tier === 'free' ? 'OFFLINE' : 'ONLINE'}</p>
-                                <span className={cn("w-1.5 h-1.5 rounded-full", user.tier === 'free' ? "bg-red-500" : "bg-emerald-500 animate-pulse")} />
-                            </div>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        {activeTab === 'analysis' && (
-                            <div className="flex items-center">
-                                <span className="text-[#FFC038] font-bold text-xs uppercase mr-2 font-['Roboto']">AI Agent Settings</span>
-                                <button
-                                    onClick={() => setIsAIPriceSettingsOpen(true)}
-                                    className="p-2 text-[#FFC038] hover:bg-[#FFC038]/10 rounded-full transition-colors"
-                                >
-                                    <Settings className="w-4 h-4" />
-                                </button>
-                            </div>
-                        )}
-                        <Button onClick={() => setIsPricingOpen(true)} variant={user.tier === 'pulse_plus' || user.tier === 'pulse_pro' ? "secondary" : "primary"} className="h-8 text-[10px] px-3 uppercase">
-                            {getTierLabel()}
-                        </Button>
-                    </div>
-                </header>
-
-                <div className="flex-1 flex overflow-hidden">
-                    {/* Left Sidebar (Navigation) */}
-                    <nav className="w-16 border-r border-[#FFC038]/20 bg-[#050500] flex flex-col items-center py-4 z-40">
-                        <div className="flex flex-col gap-4">
-                            <button
-                                onClick={() => handleTabChange('feed')}
-                                className={cn("p-3 rounded-xl transition-all", activeTab === 'feed' ? "bg-[#FFC038] text-black shadow-[0_0_15px_rgba(255,192,56,0.5)]" : "text-[#FFC038]/50 hover:text-[#FFC038]")}
-                            >
-                                <Terminal className="w-6 h-6" />
-                            </button>
-                            <button
-                                onClick={() => handleTabChange('analysis')}
-                                className={cn("p-3 rounded-xl transition-all", activeTab === 'analysis' ? "bg-[#FFC038] text-black shadow-[0_0_15px_rgba(255,192,56,0.5)]" : "text-[#FFC038]/50 hover:text-[#FFC038]")}
-                            >
-                                <GeminiIcon className="w-6 h-6" />
-                            </button>
-                            <button
-                                onClick={() => handleTabChange('news')}
-                                className={cn("p-3 rounded-xl transition-all", activeTab === 'news' ? "bg-[#FFC038] text-black shadow-[0_0_15px_rgba(255,192,56,0.5)]" : "text-[#FFC038]/50 hover:text-[#FFC038]")}
-                            >
-                                <Newspaper className="w-6 h-6" />
-                            </button>
-                        </div>
-
-                        <div className="mt-auto flex flex-col gap-4">
-                            <button onClick={() => setIsSettingsOpen(true)} className="p-3 text-[#FFC038]/50 hover:text-[#FFC038] hover:bg-[#FFC038]/10 rounded-xl transition-colors">
-                                <Settings className="w-6 h-6" />
-                            </button>
-                            <button onClick={() => window.location.reload()} className="p-3 text-red-500/50 hover:text-red-500 hover:bg-red-900/10 rounded-xl transition-colors">
-                                <LogOut className="w-6 h-6" />
-                            </button>
-                        </div>
-                    </nav>
-
-                    {/* Middle Column (Mission Control) */}
-                    <aside className="shrink-0 z-30 h-full">
-                        <MissionControl onPsychStateUpdate={handlePsychUpdate} onTilt={handleTilt} psychState={psychState} />
-                    </aside>
-
-                    {/* Right Column (Main Content) */}
-                    <main className="flex-1 bg-[#0a0a00] relative min-w-0">
-                        {activeTab === 'feed' && (
-                            <div className="h-full overflow-y-auto p-4">
-                                {feedItems.length === 0 ? (
-                                    <div className="flex flex-col items-center justify-center h-full opacity-30 text-[#FFC038]">
-                                        <Activity className="w-12 h-12 mb-2" />
-                                        <span className="text-xs font-mono">System Idle. Waiting for data uplink...</span>
-                                    </div>
-                                ) : (
-                                    <FeedSection title="SYSTEM FEED" items={feedItems} onClear={() => setFeedItems([])} />
-                                )}
-                            </div>
-                        )}
-
-                        {activeTab === 'analysis' && (
-                            <ChatInterface
-                                feedItems={feedItems}
-                                erScore={psychState.score}
-                                erState={psychState.state}
-                                tiltCount={psychState.tiltCount}
+                    return (
+                    <ErrorBoundary>
+                        <div className="h-screen w-screen bg-black text-[#FFC038] font-mono flex flex-col overflow-hidden relative selection:bg-[#FFC038] selection:text-black">
+                            {/* Modals */}
+                            <SettingsModal
+                                isOpen={isSettingsOpen}
+                                onClose={() => setIsSettingsOpen(false)}
+                                onSave={() => fetchFeed(15)}
                             />
-                        )}
+                            <AIPriceSettingsModal isOpen={isAIPriceSettingsOpen} onClose={() => setIsAIPriceSettingsOpen(false)} />
+                            <PricingModal isOpen={isPricingOpen} onClose={() => setIsPricingOpen(false)} />
+                            <UplinkOnboardingModal isOpen={isOnboardingOpen} onComplete={handleOnboardingComplete} onCancel={handleOnboardingCancel} />
 
-                        {activeTab === 'news' && (
-                            <div className="h-full relative flex flex-col">
-                                {user.tier !== 'pulse_pro' ? (
-                                    <div className="h-full flex flex-col items-center justify-center text-center p-8">
-                                        <div className="max-w-md">
-                                            <Newspaper className="w-16 h-16 text-[#FFC038]/30 mx-auto mb-6" />
-                                            <h2 className="text-2xl font-bold text-[#FFC038] font-['Roboto'] mb-2">NEWSWIRE LOCKED</h2>
-                                            <p className="text-white/50 text-sm mb-6">Real-time institutional squawk and sentiment analysis requires Pulse Pro clearance.</p>
-                                            <Button onClick={() => setIsPricingOpen(true)} variant="primary" className="mx-auto">UNLOCK NEWSWIRE</Button>
+                            {/* Header */}
+                            <header className="h-14 border-b border-[#FFC038]/20 flex items-center justify-between px-6 bg-[#050500] shrink-0 z-50">
+                                <div className="flex items-center gap-4">
+                                    <span className="text-[#FFC038] font-bold text-xl tracking-widest uppercase font-['Roboto']">Pulse</span>
+
+                                    <div>
+                                        <div className="flex gap-2 items-center">
+                                            <p className="text-[9px] text-[#FFC038] font-mono tracking-widest">SYSTEM {user.tier === 'free' ? 'OFFLINE' : 'ONLINE'}</p>
+                                            <span className={cn("w-1.5 h-1.5 rounded-full", user.tier === 'free' ? "bg-red-500" : "bg-emerald-500 animate-pulse")} />
                                         </div>
                                     </div>
-                                ) : (
-                                    <NewsFeed
-                                        items={newsItems}
-                                        onClear={() => setNewsItems([])}
-                                        onRefresh={() => fetchFeed(20)}
-                                    />
-                                )}
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    {activeTab === 'analysis' && (
+                                        <div className="flex items-center">
+                                            <span className="text-[#FFC038] font-bold text-xs uppercase mr-2 font-['Roboto']">AI Agent Settings</span>
+                                            <button
+                                                onClick={() => setIsAIPriceSettingsOpen(true)}
+                                                className="p-2 text-[#FFC038] hover:bg-[#FFC038]/10 rounded-full transition-colors"
+                                            >
+                                                <Settings className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    )}
+                                    <Button onClick={() => setIsPricingOpen(true)} variant={user.tier === 'pulse_plus' || user.tier === 'pulse_pro' ? "secondary" : "primary"} className="h-8 text-[10px] px-3 uppercase">
+                                        {getTierLabel()}
+                                    </Button>
+                                </div>
+                            </header>
+
+                            <div className="flex-1 flex overflow-hidden">
+                                {/* Left Sidebar (Navigation) */}
+                                <nav className="w-16 border-r border-[#FFC038]/20 bg-[#050500] flex flex-col items-center py-4 z-40">
+                                    <div className="flex flex-col gap-4">
+                                        <button
+                                            onClick={() => handleTabChange('feed')}
+                                            className={cn("p-3 rounded-xl transition-all", activeTab === 'feed' ? "bg-[#FFC038] text-black shadow-[0_0_15px_rgba(255,192,56,0.5)]" : "text-[#FFC038]/50 hover:text-[#FFC038]")}
+                                        >
+                                            <Terminal className="w-6 h-6" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleTabChange('analysis')}
+                                            className={cn("p-3 rounded-xl transition-all", activeTab === 'analysis' ? "bg-[#FFC038] text-black shadow-[0_0_15px_rgba(255,192,56,0.5)]" : "text-[#FFC038]/50 hover:text-[#FFC038]")}
+                                        >
+                                            <GeminiIcon className="w-6 h-6" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleTabChange('news')}
+                                            className={cn("p-3 rounded-xl transition-all", activeTab === 'news' ? "bg-[#FFC038] text-black shadow-[0_0_15px_rgba(255,192,56,0.5)]" : "text-[#FFC038]/50 hover:text-[#FFC038]")}
+                                        >
+                                            <Newspaper className="w-6 h-6" />
+                                        </button>
+                                    </div>
+
+                                    <div className="mt-auto flex flex-col gap-4">
+                                        <button onClick={() => setIsSettingsOpen(true)} className="p-3 text-[#FFC038]/50 hover:text-[#FFC038] hover:bg-[#FFC038]/10 rounded-xl transition-colors">
+                                            <Settings className="w-6 h-6" />
+                                        </button>
+                                        <button onClick={() => window.location.reload()} className="p-3 text-red-500/50 hover:text-red-500 hover:bg-red-900/10 rounded-xl transition-colors">
+                                            <LogOut className="w-6 h-6" />
+                                        </button>
+                                    </div>
+                                </nav>
+
+                                {/* Middle Column (Mission Control) */}
+                                <aside className="shrink-0 z-30 h-full">
+                                    <MissionControl onPsychStateUpdate={handlePsychUpdate} onTilt={handleTilt} psychState={psychState} />
+                                </aside>
+
+                                {/* Right Column (Main Content) */}
+                                <main className="flex-1 bg-[#0a0a00] relative min-w-0">
+                                    {activeTab === 'feed' && (
+                                        <div className="h-full overflow-y-auto p-4">
+                                            {feedItems.length === 0 ? (
+                                                <div className="flex flex-col items-center justify-center h-full opacity-30 text-[#FFC038]">
+                                                    <Activity className="w-12 h-12 mb-2" />
+                                                    <span className="text-xs font-mono">System Idle. Waiting for data uplink...</span>
+                                                </div>
+                                            ) : (
+                                                <FeedSection title="SYSTEM FEED" items={feedItems} onClear={() => setFeedItems([])} />
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {activeTab === 'analysis' && (
+                                        <ChatInterface
+                                            feedItems={feedItems}
+                                            erScore={psychState.score}
+                                            erState={psychState.state}
+                                            tiltCount={psychState.tiltCount}
+                                            algoState={algoState}
+                                            activeModels={Object.keys(settings.tradingModels).filter(k => settings.tradingModels[k as keyof typeof settings.tradingModels])}
+                                        />
+                                    )}
+
+                                    {activeTab === 'news' && (
+                                        <div className="h-full relative flex flex-col">
+                                            {user.tier !== 'pulse_pro' ? (
+                                                <div className="h-full flex flex-col items-center justify-center text-center p-8">
+                                                    <div className="max-w-md">
+                                                        <Newspaper className="w-16 h-16 text-[#FFC038]/30 mx-auto mb-6" />
+                                                        <h2 className="text-2xl font-bold text-[#FFC038] font-['Roboto'] mb-2">NEWSWIRE LOCKED</h2>
+                                                        <p className="text-white/50 text-sm mb-6">Real-time institutional squawk and sentiment analysis requires Pulse Pro clearance.</p>
+                                                        <Button onClick={() => setIsPricingOpen(true)} variant="primary" className="mx-auto">UNLOCK NEWSWIRE</Button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <NewsFeed
+                                                    items={newsItems}
+                                                    onClear={() => setNewsItems([])}
+                                                    onRefresh={() => fetchFeed(20)}
+                                                />
+                                            )}
+                                        </div>
+                                    )}
+                                </main>
                             </div>
-                        )}
-                    </main>
-                </div>
-            </div>
-        </ErrorBoundary>
-    );
+                        </div>
+                    </ErrorBoundary>
+                    );
 };
 
-// --- Root Render ---
-const root = createRoot(document.getElementById('root')!);
-root.render(
-    <React.StrictMode>
-        <AuthProvider>
-            <SettingsProvider>
-                <ThreadProvider>
-                    <AppContent />
-                </ThreadProvider>
-            </SettingsProvider>
-        </AuthProvider>
-    </React.StrictMode>
-);
+                    // --- Root Render ---
+                    const root = createRoot(document.getElementById('root')!);
+                    root.render(
+                    <React.StrictMode>
+                        <AuthProvider>
+                            <SettingsProvider>
+                                <ThreadProvider>
+                                    <AppContent />
+                                </ThreadProvider>
+                            </SettingsProvider>
+                        </AuthProvider>
+                    </React.StrictMode>
+                    );

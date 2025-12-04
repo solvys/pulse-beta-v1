@@ -209,6 +209,51 @@ export class ProjectXService {
         }
     }
 
+    static async retrieveBars(
+        token: string,
+        contractId: string,
+        startTime: string,
+        endTime: string,
+        unit: number = 2, // 2 = Minute
+        unitNumber: number = 1,
+        limit: number = 1000
+    ): Promise<any[]> {
+        try {
+            const response = await fetch(`${this.API_URL}/api/History/retrieveBars`, {
+                method: 'POST',
+                headers: {
+                    'accept': 'text/plain',
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    contractId,
+                    live: true, // Assuming live for now, could be parameterized
+                    startTime,
+                    endTime,
+                    unit,
+                    unitNumber,
+                    limit,
+                    includePartialBar: false
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to retrieve bars: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            if (data.success) {
+                return data.bars;
+            } else {
+                throw new Error(data.errorMessage || "Unknown error retrieving bars");
+            }
+        } catch (error) {
+            console.error("ProjectX Retrieve Bars Error:", error);
+            throw error;
+        }
+    }
+
     static async placeMarketOrder(
         token: string,
         accountId: number,

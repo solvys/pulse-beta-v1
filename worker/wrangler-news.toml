@@ -1,0 +1,10 @@
+name = "news-aggregator"
+main = "news-aggregator.js"
+compatibility_date = "2024-11-01"
+
+# Environment variables (set these in Cloudflare dashboard)
+# Or use `wrangler secret put ALPACA_API_KEY` etc.
+[vars]
+# ALPACA_API_KEY = ""
+# ALPACA_API_SECRET = ""
+# FINNHUB_API_KEY = ""
