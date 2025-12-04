@@ -214,6 +214,12 @@ export const generateAgentResponse = async (
         const apiKey = settings.claudeApiKey || (window as any).__CLAUDE_API_KEY__ || import.meta.env.VITE_CLAUDE_API_KEY;
 
         if (!apiKey) {
+            console.error("PRICE_AI_GEMINI_FAILED: No API Key found", {
+                hasSettingsKey: !!settings.geminiApiKey,
+                hasWindowKey: !!(window as any).__GEMINI_API_KEY__,
+                hasEnvKey: !!import.meta.env.VITE_GEMINI_API_KEY
+            });
+            return "Uplink failure. API Key missing. Check your settings, chap.";
             console.error("[Claude] No API Key found.");
             return "Uplink failure. Claude API Key missing. Check your settings, chap.";
         }
@@ -225,6 +231,11 @@ export const generateAgentResponse = async (
 
         console.log('[Claude] Generating response...');
 
+        console.log('PRICE_AI: Generating response...', {
+            intent,
+            instrument: context.instrumentDetails?.symbol,
+            erState: context.erState
+        });
         // Convert history to Claude format
         const messages: Anthropic.MessageParam[] = history.map(msg => ({
             role: msg.role === 'model' ? 'assistant' : 'user',
@@ -250,6 +261,29 @@ export const generateAgentResponse = async (
             return textContent.text;
         }
 
+        const text = response.text();
+
+        if (!text || text.length === 0) {
+            console.error("PRICE_AI_GEMINI_FAILED: Empty response", { result });
+            return "Got a blank signal, TP. The wire's gone quiet. Try again in a moment.";
+        }
+
+        console.log('PRICE_AI_SUCCESS: Response generated', {
+            length: text.length,
+            instrument: context.instrumentDetails?.symbol
+        });
+
+        return text;
+    } catch (error: any) {
+        console.error("PRICE_AI_GEMINI_FAILED:", {
+            error: error.message,
+            stack: error.stack,
+            intent,
+            instrument: context.instrumentDetails?.symbol,
+            hasApiKey: !!settings.geminiApiKey,
+            userMessage: userMessage.substring(0, 100)
+        });
+        return "Signal lost. The AI uplink dropped out, chap. Check console for details or try again.";
         return "Signal degraded. No response from Claude.";
     } catch (error) {
         console.error("[Claude] Agent Uplink Error:", error);

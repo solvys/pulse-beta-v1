@@ -69,6 +69,15 @@ const INSTRUMENT_RULES: Record<string, { name: string; contract: string; tickSiz
     '/SIL': { name: 'Micro Silver', contract: 'Mar 26', tickSize: 0.005, pointValue: 50, ivRange: { low: 15, high: 35 } }
 };
 
+// TopstepX Contract Symbol Mapping
+// Maps our instrument keys to TopstepX symbolIds
+const TOPSTEPX_SYMBOL_MAP: Record<string, string[]> = {
+    '/MNQ': ['F.US.MNQH', 'F.US.MNQ', 'Micro E-mini NASDAQ'],  // Try variations
+    '/MES': ['F.US.MESH', 'F.US.MES', 'Micro E-mini S&P'],
+    '/MGC': ['F.US.MGCH', 'F.US.MGC', 'Micro Gold'],
+    '/SIL': ['F.US.SIL', 'Micro Silver']
+};
+
 // Fallback Mock Data for Feed
 const MOCK_WIRE_DATA = [
     { text: "ES Futures holding 5050 support, buyers stepping in.", source: "ZeroHedge" },
@@ -329,9 +338,9 @@ const SettingsProvider = ({ children }: { children: React.ReactNode }) => {
         // Merge defaults carefully in case of schema update
         const defaults: AppSettings = {
             showUpgradeCTAText: true,
-            alpacaApiKey: '',
-            alpacaApiSecret: '',
-            finnhubApiKey: '',
+            alpacaApiKey: 'PKEEHQLGHOOY53VA3QGVR4AWJ5',
+            alpacaApiSecret: '3RsugNrN4ZkZoUuF7VjfPkAZRKjaZpzX46Mwbt9YCrqE',
+            finnhubApiKey: 'd4ndrnpr01qk2nubav0gd4ndrnpr01qk2nubav10',
             topstepXUserName: '',
             topstepXApiKey: '',
             customInstructions: '',
@@ -1604,10 +1613,34 @@ const ChatInterface = ({
     return (
         <div className="flex flex-col h-full bg-[#0a0a00] relative">
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                {!activeThread ? (
+                {!activeThread || activeThread.messages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-[#FFC038]/30">
                         <Notebook className="w-16 h-16 mb-4 opacity-50" />
-                        <p className="font-mono text-sm">Uplink Ready. Initialize Chat.</p>
+                        <p className="font-mono text-sm mb-8">Uplink Ready. Initialize Chat.</p>
+
+                        {/* Suggestion Chips */}
+                        <div className="flex flex-wrap gap-2 justify-center max-w-2xl">
+                            {[
+                                "Run the NTN report.",
+                                "Check the tape.",
+                                "Tell me what's going on in the markets today.",
+                                "Run my psych eval.",
+                                "How am I doing emotionally this week?",
+                                "Recap this week's trading.",
+                                "Give me the Tale of the Tape summary."
+                            ].map((prompt, i) => (
+                                <button
+                                    key={i}
+                                    onClick={() => {
+                                        setInput(prompt);
+                                        textareaRef.current?.focus();
+                                    }}
+                                    className="px-4 py-2 rounded-full bg-[#140a00] border border-[#FFC038]/30 text-[#FFC038]/70 text-xs font-medium hover:bg-[#FFC038]/10 hover:border-[#FFC038]/50 hover:text-[#FFC038] hover:shadow-[0_0_15px_rgba(255,192,56,0.2)] transition-all duration-200"
+                                >
+                                    {prompt}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 ) : (
                     activeThread.messages.map((msg, i) => (
@@ -2245,6 +2278,120 @@ const MissionControl = ({ onPsychStateUpdate, onTilt, psychState }: { onPsychSta
                             />
                         </div>
 
+                    {/* 2.5. Fire Test Trade Button (Shown when enabled in Dev Mode) */}
+                    {settings.showFireTestTrade && settings.topstepAccountConnected && settings.selectedAccount && (
+                        <div className="bg-[#140a00] border border-[#FF4040]/30 rounded-lg overflow-hidden">
+                            <div className="p-3 flex justify-between items-center bg-[#FF4040]/5">
+                                <div className="flex items-center gap-2 text-[#FF4040]">
+                                    <Flame className="w-4 h-4" />
+                                    <span className="text-xs font-bold">Fire Test Trade</span>
+                                </div>
+                                <Button
+                                    onClick={async () => {
+                                        if (!token) {
+                                            alert('Not authenticated');
+                                            return;
+                                        }
+
+                                        const selectedInst = settings.selectedInstrument;
+                                        const instrumentInfo = INSTRUMENT_RULES[selectedInst];
+
+                                        if (!instrumentInfo) {
+                                            console.error('TEST_TRADE_FAILED: Invalid instrument', { selectedInst });
+                                            alert(`❌ Invalid instrument selected: ${selectedInst}`);
+                                            return;
+                                        }
+
+                                        try {
+                                            // Fetch available contracts
+                                            console.log('TEST_TRADE: Fetching available contracts...');
+                                            const contracts = await ProjectXService.getAvailableContracts(token, true);
+                                            console.log('TEST_TRADE: Available contracts:', contracts.map(c => ({ symbolId: c.symbolId, name: c.name, active: c.activeContract })));
+
+                                            // Get possible symbolIds for this instrument
+                                            const possibleSymbols = TOPSTEPX_SYMBOL_MAP[selectedInst] || [];
+
+                                            // Try to find matching contract - try multiple strategies
+                                            let targetContract = contracts.find(c =>
+                                                c.activeContract && possibleSymbols.some(sym =>
+                                                    c.symbolId?.includes(sym) ||
+                                                    c.name?.includes(sym) ||
+                                                    c.description?.includes(sym)
+                                                )
+                                            );
+
+                                            // Fallback: try partial match on instrument name
+                                            if (!targetContract) {
+                                                const instName = instrumentInfo.name;
+                                                targetContract = contracts.find(c =>
+                                                    c.activeContract && (
+                                                        c.name?.includes(instName) ||
+                                                        c.description?.includes(instName)
+                                                    )
+                                                );
+                                            }
+
+                                            if (!targetContract) {
+                                                const errorMsg = `${selectedInst} contract not found in TopstepX`;
+                                                console.error('TEST_TRADE_FAILED: CONTRACT_NOT_FOUND', {
+                                                    selectedInstrument: selectedInst,
+                                                    instrumentName: instrumentInfo.name,
+                                                    searchedSymbols: possibleSymbols,
+                                                    availableContracts: contracts.filter(c => c.activeContract).map(c => `${c.symbolId} - ${c.name}`)
+                                                });
+                                                alert(`❌ ${errorMsg}\n\nChecked for: ${possibleSymbols.join(', ')}\n\nPlease verify the contract is available in your TopstepX account.`);
+                                                return;
+                                            }
+
+                                            console.log('TEST_TRADE: Found contract', {
+                                                symbolId: targetContract.symbolId,
+                                                name: targetContract.name,
+                                                id: targetContract.id
+                                            });
+
+                                            // Confirm
+                                            const confirmed = window.confirm(
+                                                `🔥 FIRE TEST TRADE\n\n` +
+                                                `Instrument: ${instrumentInfo.name}\n` +
+                                                `Contract: ${targetContract.name} (${targetContract.description || targetContract.symbolId})\n` +
+                                                `Side: BUY\n` +
+                                                `Quantity: ${settings.contractSize || 1}\n` +
+                                                `Account: ${settings.selectedAccount}\n\n` +
+                                                `This will place a REAL MARKET ORDER. Continue?`
+                                            );
+
+                                            if (!confirmed) {
+                                                console.log('TEST_TRADE: User cancelled');
+                                                return;
+                                            }
+
+                                            // Place order
+                                            console.log('TEST_TRADE: Placing order...');
+                                            const result = await ProjectXService.placeMarketOrder(
+                                                token,
+                                                Number(settings.selectedAccount),
+                                                targetContract.id,
+                                                'buy',
+                                                settings.contractSize || 1
+                                            );
+
+                                            console.log('TEST_TRADE_SUCCESS:', result);
+                                            alert(`✅ Order placed successfully!\n\nOrder ID: ${result.orderId}\nInstrument: ${instrumentInfo.name}`);
+                                        } catch (error: any) {
+                                            console.error('TEST_TRADE_FAILED:', {
+                                                error: error.message,
+                                                stack: error.stack,
+                                                selectedInstrument: selectedInst,
+                                                account: settings.selectedAccount
+                                            });
+                                            alert(`❌ Order failed:\n\n${error.message}\n\nCheck console for details.`);
+                                        }
+                                    }}
+                                    variant="danger"
+                                    className="text-[10px] px-4 py-1 h-auto bg-[#FF4040] hover:bg-[#FF6060] text-white border-none"
+                                >
+                                    🔥 FIRE
+                                </Button>
                         {/* 2.5. Fire Test Trade Button (Shown when enabled in Dev Mode) */}
                         {settings.showFireTestTrade && settings.topstepAccountConnected && settings.selectedAccount && (
                             <div className="bg-[#140a00] border border-[#FF4040]/30 rounded-lg overflow-hidden">
