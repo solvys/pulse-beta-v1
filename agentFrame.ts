@@ -21,6 +21,7 @@ export type AgentContext = {
         ivRange: { low: number; high: number };
     };
     algoState?: AlgoState | null; // Added Algo State
+    activeModels?: string[]; // Added: List of active trading models
 };
 
 export type AgentSettings = {
@@ -40,14 +41,15 @@ Reports must be actionable and succinct.
 Use market terminology correctly (bid/ask, tape, flow, iv, delta, gamma, vanna).
 
 DATA SOURCES:
-1. [LIVE WIRE FEED]: Real-time news from Alpaca Markets and Finnhub.
+1. [THE TAPE]: Real-time news from Alpaca Markets and Finnhub.
 2. [ALGO ENGINE]: Our proprietary 1000-Tick EMA Cross strategy (20/100 EMA + ES Confluence).
-3. [PSYCH METRICS]: The user's emotional state and tilt levels.
+3. [ACTIVE MODELS]: The specific trading setups we are hunting for today.
+4. [PSYCH METRICS]: The user's emotional state and tilt levels.
 
 RESPONSE FRAMEWORK:
 1. Parse the user's Intent (Market Analysis, Psych Check, Algo Check, or System Command).
 2. Classify the Domain (Markets, Psychology, News, System).
-3. Retrieve Data from the [CURRENT SYSTEM STATE], [ALGO STATE], and [LIVE WIRE FEED].
+3. Retrieve Data from the [CURRENT SYSTEM STATE], [ALGO STATE], [ACTIVE MODELS], and [THE TAPE].
 4. REASON INTERNALLY (Chain-of-Thought): Analyze the sentiment, IV, Algo signals, and user's emotional state.
 5. GENERATE OUTPUT: Provide the final response in the "Price" persona. Be direct.
 
@@ -76,6 +78,15 @@ const buildContextString = (context: AgentContext, intent: string): string => {
         contextStr += `Contract Specs: Tick=${context.instrumentDetails.tickSize}, Point=$${context.instrumentDetails.pointValue}\n`;
     }
 
+    if (context.activeModels && context.activeModels.length > 0) {
+        contextStr += `\n[ACTIVE TRADING MODELS]\nWe are hunting for these specific setups:\n`;
+        context.activeModels.forEach(model => {
+            contextStr += `- ${model}\n`;
+        });
+    } else {
+        contextStr += `\n[ACTIVE TRADING MODELS]\nNo specific models selected. Trading discretionary flow.\n`;
+    }
+
     if (context.algoState) {
         contextStr += `\n[ALGO ENGINE STATE]\n`;
         contextStr += `Strategy: 1000-Tick EMA Cross (20/100)\n`;
@@ -88,7 +99,7 @@ const buildContextString = (context: AgentContext, intent: string): string => {
 
     if (intent === 'market' || intent === 'news' || intent === 'general' || intent === 'system' || intent === 'algo') {
         const recentFeed = context.feedItems.slice(0, 10).map(f => `[${f.time}] ${f.text} (IV: ${f.iv?.value.toFixed(1)})`).join('\n');
-        contextStr += `\n[LIVE WIRE FEED]\n${recentFeed || "Tape is quiet. No wire data."}\n`;
+        contextStr += `\n[THE TAPE]\n${recentFeed || "Tape is quiet. No wire data."}\n`;
     }
 
     if (intent === 'psych' || context.erState === 'tilt') {
@@ -103,7 +114,7 @@ const handleSpecialCommands = (message: string, context: AgentContext): string |
 
     if (lower.includes('check the tape')) {
         return `[COMMAND: TAPE_READING]
-        TASK: Scan the [LIVE WIRE FEED].
+        TASK: Scan [THE TAPE].
         ACTION: Summarize the aggregate flow, news sentiment, and IV readings.
         OUTPUT: A "Tape Read" comprising:
         1. Sentiment (Bullish/Bearish/Neutral)
